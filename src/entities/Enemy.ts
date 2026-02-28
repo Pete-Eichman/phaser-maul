@@ -3,9 +3,9 @@ import { EnemyDef, PATH_WAYPOINTS, TILE_SIZE } from '@/config/gameConfig';
 import { tileToPixel, distance } from '@/utils/helpers';
 
 export interface StatusEffect {
-  type: 'slow' | 'burn';
+  type: 'slow' | 'burn' | 'poison';
   duration: number;    // remaining ms
-  value: number;       // slow: multiplier (0.6 = 40% slow), burn: DPS
+  value: number;       // slow: multiplier (0.6 = 40% slow), burn/poison: DPS
 }
 
 export class Enemy {
@@ -97,6 +97,7 @@ export class Enemy {
   private processStatusEffects(delta: number): void {
     let slowMultiplier = 1;
     let burnDPS = 0;
+    let poisonDPS = 0;
 
     for (let i = this.statusEffects.length - 1; i >= 0; i--) {
       const effect = this.statusEffects[i];
@@ -111,22 +112,26 @@ export class Enemy {
         slowMultiplier = Math.min(slowMultiplier, effect.value);
       } else if (effect.type === 'burn') {
         burnDPS += effect.value;
+      } else if (effect.type === 'poison') {
+        poisonDPS += effect.value;
       }
     }
 
-    // Apply slow
     this.speed = this.baseSpeed * slowMultiplier;
 
-    // Apply burn damage
     if (burnDPS > 0) {
       this.takeDamage(burnDPS * (delta / 1000), 'fire');
     }
+    if (poisonDPS > 0) {
+      this.takeDamage(poisonDPS * (delta / 1000), 'poison');
+    }
 
-    // Visual feedback for status effects
     if (slowMultiplier < 1) {
-      this.sprite.setStrokeStyle(2, 0x4fc3f7); // Blue outline when slowed
+      this.sprite.setStrokeStyle(2, 0x4fc3f7); // Blue when slowed
     } else if (burnDPS > 0) {
-      this.sprite.setStrokeStyle(2, 0xff6f00); // Orange outline when burning
+      this.sprite.setStrokeStyle(2, 0xff6f00); // Orange when burning
+    } else if (poisonDPS > 0) {
+      this.sprite.setStrokeStyle(2, 0x66bb6a); // Green when poisoned
     } else {
       this.sprite.setStrokeStyle(0);
     }

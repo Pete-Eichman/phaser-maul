@@ -16,6 +16,8 @@ export class Projectile {
   private splashRadius: number = 0;
   private slowRadius: number = 0;
   private slowDuration: number = 0;
+  private chainCount: number = 0;
+  private chainRadius: number = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -40,6 +42,11 @@ export class Projectile {
     if (towerDef.damageType === 'ice') {
       this.slowRadius = towerDef.slowRadius ?? 0;
       this.slowDuration = towerDef.levels[towerLevel].slowDuration ?? 2000;
+    }
+
+    if (towerDef.chainCount) {
+      this.chainCount = towerDef.chainCount;
+      this.chainRadius = towerDef.chainRadius ?? 80;
     }
 
     // Projectile visual — small circle
@@ -124,6 +131,47 @@ export class Projectile {
             enemy.applyEffect(slowEffect);
           }
         }
+      }
+    }
+
+    // Lightning tower: chain to nearby enemies
+    if (this.chainCount > 0) {
+      let source = this.target;
+      let chainDamage = this.damage * 0.5;
+      const chained = new Set<Enemy>([this.target]);
+
+      for (let i = 0; i < this.chainCount; i++) {
+        let next: Enemy | null = null;
+        let nextDist = Infinity;
+
+        for (const enemy of allEnemies) {
+          if (chained.has(enemy) || !enemy.alive) continue;
+          const d = distance(source.sprite.x, source.sprite.y, enemy.sprite.x, enemy.sprite.y);
+          if (d <= this.chainRadius && d < nextDist) {
+            nextDist = d;
+            next = enemy;
+          }
+        }
+
+        if (!next) break;
+
+        // Brief arc flash between source and target
+        const gfx = this.scene.add.graphics();
+        gfx.lineStyle(2, 0xffee58, 1);
+        gfx.lineBetween(source.sprite.x, source.sprite.y, next.sprite.x, next.sprite.y);
+        gfx.setDepth(16);
+        this.scene.tweens.add({
+          targets: gfx,
+          alpha: 0,
+          duration: 120,
+          onComplete: () => gfx.destroy(),
+        });
+
+        const chainDmg = calculateDamage(chainDamage, this.damageType, next.armor, next.magicResist);
+        next.takeDamage(chainDmg, this.damageType);
+        chained.add(next);
+        source = next;
+        chainDamage *= 0.5;
       }
     }
 
