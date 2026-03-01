@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { MenuScene } from '@/scenes/MenuScene';
 import { GameScene } from '@/scenes/GameScene';
 import { GAME_WIDTH, GAME_HEIGHT, MAP_ROWS, TILE_SIZE } from '@/config/gameConfig';
 
@@ -15,7 +16,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [GameScene],
+  scene: [MenuScene, GameScene],
   physics: {
     // We don't need Phaser physics — movement is manual for better control
     default: 'arcade',
