@@ -6,6 +6,7 @@ import { distance } from '@/utils/helpers';
 
 export class Tower {
   public sprite: Phaser.GameObjects.Rectangle;
+  public inner: Phaser.GameObjects.Rectangle;
   public rangeCircle: Phaser.GameObjects.Arc;
   public levelIndicators: Phaser.GameObjects.Arc[] = [];
   public def: TowerDef;
@@ -30,10 +31,12 @@ export class Tower {
     this.tileX = tileX;
     this.tileY = tileY;
 
-    // Tower body — square with the tower's color
-    this.sprite = scene.add.rectangle(x, y, 36, 36, this.def.color);
+    // Tower body — dark base square with colored inner square
+    this.sprite = scene.add.rectangle(x, y, 36, 36, 0x1c1c2e);
     this.sprite.setDepth(5);
-    this.sprite.setStrokeStyle(2, 0x222222);
+
+    this.inner = scene.add.rectangle(x, y, 26, 26, this.def.color);
+    this.inner.setDepth(5.1);
 
     // Turret direction indicator (line from center)
     this.turretLine = scene.add.line(0, 0, x, y, x, y - 18, 0x222222);
@@ -76,29 +79,24 @@ export class Tower {
     const stats = this.getStats();
     this.rangeCircle.setRadius(stats.range);
 
-    // Brighten the tower slightly per level
+    // Brighten the inner square slightly per level
     const brighten = this.level * 0x111111;
-    this.sprite.setFillStyle(this.def.color + brighten);
+    this.inner.setFillStyle(this.def.color + brighten);
 
     this.updateLevelIndicators();
   }
 
   private updateLevelIndicators(): void {
-    // Remove old indicators
-    this.levelIndicators.forEach((dot) => dot.destroy());
+    this.levelIndicators.forEach((ring) => ring.destroy());
     this.levelIndicators = [];
 
-    // Add dots for current level
+    const radii = [20, 24];
     for (let i = 0; i < this.level; i++) {
-      const offsetX = (i - (this.level - 1) / 2) * 8;
-      const dot = this.scene.add.circle(
-        this.sprite.x + offsetX,
-        this.sprite.y + 22,
-        3,
-        0xffd700
-      );
-      dot.setDepth(7);
-      this.levelIndicators.push(dot);
+      const ring = this.scene.add.circle(this.sprite.x, this.sprite.y, radii[i]);
+      ring.setFillStyle(0, 0);
+      ring.setStrokeStyle(1.5, 0xc9a959);
+      ring.setDepth(5.2);
+      this.levelIndicators.push(ring);
     }
   }
 
@@ -157,7 +155,7 @@ export class Tower {
       this.sprite.y + Math.sin(angle) * lineLength
     );
 
-    return new Projectile(
+    const projectile = new Projectile(
       this.scene,
       this.sprite.x,
       this.sprite.y,
@@ -166,6 +164,15 @@ export class Tower {
       this.def,
       this.level
     );
+
+    const normalColor = this.def.color + this.level * 0x111111;
+    const flashColor = Math.min(0xffffff, normalColor + 0x404040);
+    this.inner.setFillStyle(flashColor);
+    this.scene.time.delayedCall(80, () => {
+      if (this.inner?.active) this.inner.setFillStyle(normalColor);
+    });
+
+    return projectile;
   }
 
   startSellAnimation(onComplete: () => void): void {
@@ -173,7 +180,7 @@ export class Tower {
     this.rangeCircle.setVisible(false);
     this.levelIndicators.forEach((d) => d.setVisible(false));
     this.scene.tweens.add({
-      targets: this.sprite,
+      targets: [this.sprite, this.inner],
       scaleX: 0,
       scaleY: 0,
       alpha: 0,
@@ -193,6 +200,7 @@ export class Tower {
 
   destroy(): void {
     this.sprite.destroy();
+    this.inner.destroy();
     this.turretLine.destroy();
     this.rangeCircle.destroy();
     this.levelIndicators.forEach((dot) => dot.destroy());

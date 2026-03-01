@@ -36,6 +36,11 @@ export class Enemy {
   private targetY: number = 0;
   private statusEffects: StatusEffect[] = [];
   private spawnTween: Phaser.Tweens.Tween | null = null;
+  private wedge: Phaser.GameObjects.Graphics;
+  private moveAngle: number = 0;
+  private burnParticles: Phaser.GameObjects.Arc[] = [];
+  private burnAngle: number = 0;
+  private wasBurning: boolean = false;
 
   constructor(
     scene: Phaser.Scene,
@@ -75,6 +80,24 @@ export class Enemy {
 
     this.waypointIndex = startWaypointIndex;
     this.updateTarget();
+
+    this.moveAngle = Math.atan2(
+      this.targetY - this.sprite.y,
+      this.targetX - this.sprite.x,
+    );
+    this.wedge = scene.add.graphics();
+    this.wedge.setDepth(10.5);
+  }
+
+  private drawWedge(): void {
+    this.wedge.clear();
+    const tip = this.def.size + 6;
+    const base = this.def.size;
+    const hw = 4;
+    this.wedge.fillStyle(this.def.color, 0.9);
+    this.wedge.fillTriangle(tip, 0, base, -hw, base, hw);
+    this.wedge.setPosition(this.sprite.x, this.sprite.y);
+    this.wedge.setRotation(this.moveAngle);
   }
 
   private updateTarget(): void {
@@ -94,6 +117,18 @@ export class Enemy {
 
     this.processStatusEffects(delta);
 
+    if (this.burnParticles.length > 0) {
+      this.burnAngle += delta * 0.0025;
+      for (let i = 0; i < this.burnParticles.length; i++) {
+        const a = this.burnAngle + (i / this.burnParticles.length) * Math.PI * 2;
+        const r = this.def.size + 5;
+        this.burnParticles[i].setPosition(
+          this.sprite.x + Math.cos(a) * r,
+          this.sprite.y + Math.sin(a) * r,
+        );
+      }
+    }
+
     const dist = distance(this.sprite.x, this.sprite.y, this.targetX, this.targetY);
     const moveDistance = this.speed * (delta / 1000);
 
@@ -104,10 +139,12 @@ export class Enemy {
       this.updateTarget();
     } else {
       const angle = Math.atan2(this.targetY - this.sprite.y, this.targetX - this.sprite.x);
+      this.moveAngle = angle;
       this.sprite.x += Math.cos(angle) * moveDistance;
       this.sprite.y += Math.sin(angle) * moveDistance;
     }
 
+    this.drawWedge();
     this.drawHealthBar();
   }
 
@@ -150,8 +187,21 @@ export class Enemy {
     } else if (poisonDPS > 0) {
       this.sprite.setStrokeStyle(2, 0x66bb6a);
     } else {
-      this.sprite.setStrokeStyle(0);
+      this.sprite.setStrokeStyle(1.5, 0x111111);
     }
+
+    const isBurning = burnDPS > 0;
+    if (isBurning && !this.wasBurning) {
+      for (let i = 0; i < 3; i++) {
+        const p = this.scene.add.circle(this.sprite.x, this.sprite.y, 2.5, 0xff8c00);
+        p.setDepth(10.4);
+        this.burnParticles.push(p);
+      }
+    } else if (!isBurning && this.wasBurning) {
+      this.burnParticles.forEach((p) => p.destroy());
+      this.burnParticles = [];
+    }
+    this.wasBurning = isBurning;
   }
 
   applyEffect(effect: StatusEffect): void {
@@ -181,6 +231,9 @@ export class Enemy {
     this.dying = true;
     this.spawnTween?.stop();
     this.healthBar.setVisible(false);
+    this.wedge.destroy();
+    this.burnParticles.forEach((p) => p.destroy());
+    this.burnParticles = [];
     // Flash white, then shrink and fade out
     this.sprite.setFillStyle(0xffffff);
     this.scene.tweens.add({
@@ -218,5 +271,7 @@ export class Enemy {
     this.spawnTween?.stop();
     this.sprite.destroy();
     this.healthBar.destroy();
+    if (this.wedge.active) this.wedge.destroy();
+    this.burnParticles.forEach((p) => { if (p.active) p.destroy(); });
   }
 }

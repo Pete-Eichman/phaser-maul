@@ -730,8 +730,9 @@ export class GameScene extends Phaser.Scene {
 
     // Pop-in tween — starts small and eases to full size with a slight overshoot
     tower.sprite.setScale(0.4);
+    tower.inner.setScale(0.4);
     this.tweens.add({
-      targets: tower.sprite,
+      targets: [tower.sprite, tower.inner],
       scaleX: 1,
       scaleY: 1,
       duration: 150,
