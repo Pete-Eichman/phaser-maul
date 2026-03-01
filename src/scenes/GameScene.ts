@@ -3,6 +3,7 @@ import {
   TILE_SIZE, MAP_COLS, MAP_ROWS, GAME_WIDTH, GAME_HEIGHT,
   MAP_DATA, COLORS, STARTING_GOLD, STARTING_LIVES,
   TOWER_DEFS, TowerDef, PATH_WAYPOINTS,
+  DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
 } from '@/config/gameConfig';
 import { Tower } from '@/entities/Tower';
 import { Enemy } from '@/entities/Enemy';
@@ -15,10 +16,11 @@ const UI_HEIGHT = 136;
 
 export class GameScene extends Phaser.Scene {
   // Game state
-  private gold: number = STARTING_GOLD;
-  private lives: number = STARTING_LIVES;
+  private gold: number = 0;
+  private lives: number = 0;
   private gameOver: boolean = false;
   private gameWon: boolean = false;
+  private difficultyKey: DifficultyKey = 'normal';
 
   // Entities
   private towers: Tower[] = [];
@@ -37,7 +39,6 @@ export class GameScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private towerButtons: Phaser.GameObjects.Container[] = [];
   private startWaveButton!: Phaser.GameObjects.Container;
-  private selectedTowerInfo: Phaser.GameObjects.Container | null = null;
   private upgradeButton: Phaser.GameObjects.Container | null = null;
   private sellButton: Phaser.GameObjects.Container | null = null;
   private selectedTower: Tower | null = null;
@@ -46,7 +47,26 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
+  init(data: { difficulty?: DifficultyKey }): void {
+    this.difficultyKey = data.difficulty ?? 'normal';
+    // Reset state so restarts start clean
+    this.gameOver = false;
+    this.gameWon = false;
+    this.towers = [];
+    this.enemies = [];
+    this.projectiles = [];
+    this.selectedTowerDef = null;
+    this.selectedTower = null;
+    this.upgradeButton = null;
+    this.sellButton = null;
+    this.towerButtons = [];
+  }
+
   create(): void {
+    const diff = DIFFICULTY_SETTINGS[this.difficultyKey];
+    this.gold = Math.round(STARTING_GOLD * diff.startingGoldMult);
+    this.lives = Math.round(STARTING_LIVES * diff.startingLivesMult);
+
     // Draw the tile map
     this.drawMap();
 
@@ -54,11 +74,14 @@ export class GameScene extends Phaser.Scene {
     this.hoverGraphics = this.add.graphics();
     this.hoverGraphics.setDepth(20);
 
-    // Initialize wave manager
+    // Initialize wave manager with difficulty scaling
     this.waveManager = new WaveManager(
       this,
       (enemy) => this.enemies.push(enemy),
-      (reward) => this.onWaveComplete(reward)
+      (reward) => this.onWaveComplete(reward),
+      diff.enemyHpMult,
+      diff.enemySpeedMult,
+      diff.goldMult
     );
 
     // Create UI
@@ -106,7 +129,22 @@ export class GameScene extends Phaser.Scene {
           // Killed — give gold
           this.gold += enemy.reward;
           this.waveManager.onEnemyDied();
+
+          // Splitter: spawn children at the parent's current position and waypoint
+          if (enemy.def.splits && enemy.def.splitCount) {
+            const childBaseDef: EnemyDef | undefined = ENEMY_DEFS[enemy.def.splits];
+            if (childBaseDef) {
+              const childDef = this.waveManager.scaleDef(childBaseDef);
+              for (let j = 0; j < enemy.def.splitCount; j++) {
+                const child = new Enemy(this, childDef, enemy.waypointIndex);
+                child.sprite.setPosition(enemy.sprite.x, enemy.sprite.y);
+                this.enemies.push(child);
+                this.waveManager.addEnemy();
+              }
+            }
+          }
         }
+
         enemy.destroy();
         this.enemies.splice(i, 1);
 
@@ -121,6 +159,14 @@ export class GameScene extends Phaser.Scene {
     for (const tower of this.towers) {
       const projectile = tower.update(delta, this.enemies);
       if (projectile) {
+        projectile.onDamageDealt = (x, y, dmg, label) => {
+          const offsetX = (Math.random() - 0.5) * 16;
+          if (label) {
+            this.showFloatingText(x + offsetX, y - 10, label, '#aaaaaa', '11px', 700);
+          } else {
+            this.showFloatingText(x + offsetX, y - 10, String(dmg), '#ffffff', '12px', 800);
+          }
+        };
         this.projectiles.push(projectile);
       }
     }
@@ -625,11 +671,11 @@ export class GameScene extends Phaser.Scene {
     subText.setOrigin(0.5);
     subText.setDepth(101);
 
-    // Restart button
+    // Restart button — pass difficulty so Play Again uses same setting
     const restartBtn = this.createButton(
       GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 + 80,
       160, 40, 'Play Again', 0x4caf50,
-      () => this.scene.restart()
+      () => this.scene.restart({ difficulty: this.difficultyKey })
     );
     restartBtn.setDepth(101);
   }
@@ -638,9 +684,16 @@ export class GameScene extends Phaser.Scene {
   // VISUAL FEEDBACK
   // ============================================================
 
-  private showFloatingText(x: number, y: number, message: string, color: string): void {
+  private showFloatingText(
+    x: number,
+    y: number,
+    message: string,
+    color: string,
+    fontSize: string = '14px',
+    duration: number = 1200
+  ): void {
     const text = this.add.text(x, y, message, {
-      fontSize: '14px',
+      fontSize,
       color,
       fontStyle: 'bold',
     });
@@ -651,7 +704,7 @@ export class GameScene extends Phaser.Scene {
       targets: text,
       y: y - 30,
       alpha: 0,
-      duration: 1200,
+      duration,
       ease: 'Power2',
       onComplete: () => text.destroy(),
     });
