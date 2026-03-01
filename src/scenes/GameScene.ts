@@ -7,6 +7,7 @@ import {
 } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID, MapDef } from '@/config/maps';
 import { findPath } from '@/systems/Pathfinder';
+import { SpatialHash } from '@/systems/SpatialHash';
 import { Tower } from '@/entities/Tower';
 import { Enemy, Waypoint } from '@/entities/Enemy';
 import { Projectile } from '@/entities/Projectile';
@@ -15,6 +16,9 @@ import { tileToPixel, pixelToTile } from '@/utils/helpers';
 
 // UI panel height below the game map
 const UI_HEIGHT = 136;
+
+// Right-side panel start x (leaves room for 7 tower buttons at 90px spacing starting at 155)
+const INFO_PANEL_X = 745;
 
 export class GameScene extends Phaser.Scene {
   // Game state
@@ -36,6 +40,7 @@ export class GameScene extends Phaser.Scene {
 
   // Systems
   private waveManager!: WaveManager;
+  private spatialHash!: SpatialHash<Enemy>;
 
   // UI
   private selectedTowerDef: TowerDef | null = null;
@@ -44,6 +49,7 @@ export class GameScene extends Phaser.Scene {
   private livesText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
+  private infoPanelText!: Phaser.GameObjects.Text;
   private towerButtons: Phaser.GameObjects.Container[] = [];
   private startWaveButton!: Phaser.GameObjects.Container;
   private upgradeButton: Phaser.GameObjects.Container | null = null;
@@ -80,6 +86,9 @@ export class GameScene extends Phaser.Scene {
     const diff = DIFFICULTY_SETTINGS[this.difficultyKey];
     this.gold = Math.round(STARTING_GOLD * diff.startingGoldMult);
     this.lives = Math.round(STARTING_LIVES * diff.startingLivesMult);
+
+    // Cell size = 2 tiles; balances bucket count vs enemies-per-bucket at typical wave sizes
+    this.spatialHash = new SpatialHash<Enemy>(TILE_SIZE * 2, (e) => ({ x: e.sprite.x, y: e.sprite.y }));
 
     this.drawMap();
 
@@ -157,8 +166,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Rebuild spatial hash each frame so towers query only nearby enemies
+    this.spatialHash.clear();
+    for (const enemy of this.enemies) {
+      if (enemy.alive) this.spatialHash.insert(enemy);
+    }
+
     for (const tower of this.towers) {
-      const projectile = tower.update(delta, this.enemies);
+      const nearby = this.spatialHash.query(tower.sprite.x, tower.sprite.y, tower.getStats().range);
+      const projectile = tower.update(delta, nearby);
       if (projectile) {
         projectile.onDamageDealt = (x, y, dmg, label) => {
           const offsetX = (Math.random() - 0.5) * 16;
@@ -263,7 +279,13 @@ export class GameScene extends Phaser.Scene {
       COLORS.ui.panel,
     );
     uiBg.setDepth(50);
-    uiBg.setStrokeStyle(2, 0x333333);
+    uiBg.setStrokeStyle(1, 0x222244);
+
+    // Gold accent line separating map from UI panel
+    const accentLine = this.add.graphics();
+    accentLine.lineStyle(2, COLORS.ui.accent, 1);
+    accentLine.lineBetween(0, uiY, GAME_WIDTH, uiY);
+    accentLine.setDepth(52);
 
     this.goldText = this.add.text(12, uiY + 10, '', {
       fontSize: '16px',
@@ -296,6 +318,30 @@ export class GameScene extends Phaser.Scene {
     divider.lineBetween(0, uiY + 48, GAME_WIDTH, uiY + 48);
     divider.setDepth(50);
 
+    // Vertical separator between tower buttons and info panel
+    const infoDivider = this.add.graphics();
+    infoDivider.lineStyle(1, 0x333355, 0.8);
+    infoDivider.lineBetween(INFO_PANEL_X, uiY + 52, INFO_PANEL_X, uiY + 132);
+    infoDivider.setDepth(51);
+
+    // Info panel background (right side of row 2)
+    const infoPanelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
+    const infoPanelWidth = GAME_WIDTH - INFO_PANEL_X - 4;
+    const infoPanelBg = this.add.rectangle(
+      infoPanelCenterX, uiY + 92,
+      infoPanelWidth, 76,
+      0x0d0d1e,
+    );
+    infoPanelBg.setStrokeStyle(1, 0x252545);
+    infoPanelBg.setDepth(51);
+
+    this.infoPanelText = this.add.text(INFO_PANEL_X + 8, uiY + 56, '', {
+      fontSize: '11px',
+      color: COLORS.ui.text,
+      lineSpacing: 3,
+    });
+    this.infoPanelText.setDepth(52);
+
     const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 155;
     towerIds.forEach((id, i) => {
@@ -322,8 +368,46 @@ export class GameScene extends Phaser.Scene {
     bg.setStrokeStyle(2, 0x444466);
     bg.setInteractive({ useHandCursor: true });
 
-    const swatch = this.add.rectangle(0, -18, 20, 20, def.color);
-    swatch.setStrokeStyle(1, 0x222222);
+    // Small icon representing the tower type
+    const icon = this.add.graphics();
+    const iconY = -20;
+    icon.fillStyle(def.color, 1);
+    switch (def.id) {
+      case 'arrow':
+        icon.fillTriangle(-9, iconY + 10, 9, iconY + 10, 0, iconY - 10);
+        break;
+      case 'cannon':
+        icon.fillCircle(0, iconY, 10);
+        break;
+      case 'ice':
+        icon.fillTriangle(0, iconY - 11, 10, iconY + 1, 0, iconY + 11);
+        icon.fillTriangle(0, iconY - 11, -10, iconY + 1, 0, iconY + 11);
+        break;
+      case 'fire':
+        icon.fillTriangle(-8, iconY + 10, 8, iconY + 10, 0, iconY - 10);
+        icon.fillStyle(0xffcc55, 1);
+        icon.fillTriangle(-4, iconY + 5, 4, iconY + 5, 0, iconY - 3);
+        break;
+      case 'sniper':
+        icon.fillTriangle(-4, iconY + 12, 4, iconY + 12, 0, iconY - 12);
+        break;
+      case 'lightning':
+        icon.lineStyle(3, def.color, 1);
+        icon.beginPath();
+        icon.moveTo(5, iconY - 11);
+        icon.lineTo(-3, iconY);
+        icon.lineTo(5, iconY);
+        icon.lineTo(-5, iconY + 11);
+        icon.strokePath();
+        break;
+      case 'poison':
+        icon.fillCircle(0, iconY, 9);
+        icon.fillStyle(0x44aa22, 1);
+        icon.fillCircle(0, iconY - 13, 4);
+        icon.fillCircle(11, iconY + 7, 3);
+        icon.fillCircle(-11, iconY + 7, 3);
+        break;
+    }
 
     const nameText = this.add.text(0, 0, def.name, {
       fontSize: '10px',
@@ -344,15 +428,42 @@ export class GameScene extends Phaser.Scene {
     });
     hotkeyText.setOrigin(0.5);
 
-    container.add([bg, swatch, nameText, costText, hotkeyText]);
+    container.add([bg, icon, nameText, costText, hotkeyText]);
 
     bg.on('pointerdown', () => this.selectTowerDef(def.id));
-    bg.on('pointerover', () => bg.setFillStyle(0x3a3a5a));
+    bg.on('pointerover', () => {
+      bg.setFillStyle(0x3a3a5a);
+      this.showInfoPanel(def);
+    });
     bg.on('pointerout', () => {
       bg.setFillStyle(this.selectedTowerDef?.id === def.id ? 0x3a3a5a : 0x2a2a4a);
+      this.clearInfoPanel();
     });
 
     return container;
+  }
+
+  private showInfoPanel(def: TowerDef): void {
+    const stats = def.levels[0];
+    const isPoisonAura = def.id === 'poison';
+
+    const line2 = isPoisonAura
+      ? `DOT: ${stats.damage}/s  Rate: ${stats.fireRate}/s`
+      : `Dmg: ${stats.damage}  Rate: ${stats.fireRate}/s`;
+
+    const line3 = isPoisonAura
+      ? `Range: ${stats.range}`
+      : `Range: ${stats.range}  DPS: ${(stats.damage * stats.fireRate).toFixed(1)}`;
+
+    const detail = def.special ?? def.description;
+
+    this.infoPanelText.setText(
+      `${def.name}  ${def.cost}g\n${line2}\n${line3}\n${detail}`,
+    );
+  }
+
+  private clearInfoPanel(): void {
+    this.infoPanelText.setText('');
   }
 
   private createButton(
