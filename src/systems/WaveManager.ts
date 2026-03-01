@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { WAVE_DEFS, ENEMY_DEFS, WaveDef, SpawnGroup } from '@/config/gameConfig';
+import { WAVE_DEFS, ENEMY_DEFS, EnemyDef, SpawnGroup } from '@/config/gameConfig';
 import { Enemy } from '@/entities/Enemy';
 
 interface ActiveGroup {
@@ -23,16 +23,25 @@ export class WaveManager {
   private onWaveComplete: (waveReward: number) => void;
   private totalSpawnedThisWave: number = 0;
   private totalToSpawnThisWave: number = 0;
+  private hpMult: number;
+  private speedMult: number;
+  private goldMult: number;
 
   constructor(
     scene: Phaser.Scene,
     onEnemySpawn: (enemy: Enemy) => void,
-    onWaveComplete: (waveReward: number) => void
+    onWaveComplete: (waveReward: number) => void,
+    hpMult: number = 1,
+    speedMult: number = 1,
+    goldMult: number = 1
   ) {
     this.scene = scene;
     this.totalWaves = WAVE_DEFS.length;
     this.onEnemySpawn = onEnemySpawn;
     this.onWaveComplete = onWaveComplete;
+    this.hpMult = hpMult;
+    this.speedMult = speedMult;
+    this.goldMult = goldMult;
   }
 
   startNextWave(): boolean {
@@ -78,10 +87,9 @@ export class WaveManager {
       // Tick spawn timer
       ag.timer -= delta;
       if (ag.timer <= 0) {
-        // Spawn enemy
-        const enemyDef = ENEMY_DEFS[ag.group.enemyType];
-        if (enemyDef) {
-          const enemy = new Enemy(this.scene, enemyDef);
+        const baseDef = ENEMY_DEFS[ag.group.enemyType];
+        if (baseDef) {
+          const enemy = new Enemy(this.scene, this.scaleDef(baseDef));
           this.onEnemySpawn(enemy);
           this.enemiesAliveCount++;
           this.totalSpawnedThisWave++;
@@ -96,6 +104,23 @@ export class WaveManager {
     if (allSpawned && this.enemiesAliveCount <= 0) {
       this.completeWave();
     }
+  }
+
+  // Apply difficulty multipliers to a base enemy def — used by WaveManager and
+  // GameScene when spawning split children so they inherit the same scaling.
+  scaleDef(base: EnemyDef): EnemyDef {
+    return {
+      ...base,
+      health: Math.round(base.health * this.hpMult),
+      speed: base.speed * this.speedMult,
+      reward: Math.round(base.reward * this.goldMult),
+    };
+  }
+
+  // Called when a split child is spawned mid-wave so wave completion tracking
+  // accounts for the extra enemies.
+  addEnemy(): void {
+    this.enemiesAliveCount++;
   }
 
   onEnemyDied(): void {

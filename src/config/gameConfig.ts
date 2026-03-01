@@ -34,6 +34,47 @@ export const COLORS = {
 };
 
 // ============================================================
+// DIFFICULTY SETTINGS
+// ============================================================
+export type DifficultyKey = 'easy' | 'normal' | 'hard';
+
+export interface DifficultySetting {
+  label: string;
+  startingGoldMult: number;
+  startingLivesMult: number;
+  enemyHpMult: number;
+  enemySpeedMult: number;
+  goldMult: number;
+}
+
+export const DIFFICULTY_SETTINGS: Record<DifficultyKey, DifficultySetting> = {
+  easy: {
+    label: 'Easy',
+    startingGoldMult: 1.5,
+    startingLivesMult: 1.5,
+    enemyHpMult: 0.7,
+    enemySpeedMult: 0.85,
+    goldMult: 1.2,
+  },
+  normal: {
+    label: 'Normal',
+    startingGoldMult: 1.0,
+    startingLivesMult: 1.0,
+    enemyHpMult: 1.0,
+    enemySpeedMult: 1.0,
+    goldMult: 1.0,
+  },
+  hard: {
+    label: 'Hard',
+    startingGoldMult: 0.75,
+    startingLivesMult: 0.8,
+    enemyHpMult: 1.4,
+    enemySpeedMult: 1.2,
+    goldMult: 0.85,
+  },
+};
+
+// ============================================================
 // MAP LAYOUT
 // 0 = grass (buildable)
 // 1 = path (enemies walk here)
@@ -229,6 +270,10 @@ export interface EnemyDef {
   size: number;         // radius in pixels
   armor: number;        // flat damage reduction (physical)
   magicResist: number;  // flat damage reduction (magic/elemental)
+  alpha?: number;       // sprite opacity (1 = opaque)
+  physicalImmune?: boolean; // takes no damage from physical attacks
+  splits?: string;      // enemy type to spawn on death (killed only, not end)
+  splitCount?: number;  // how many to spawn on death
 }
 
 export const ENEMY_DEFS: Record<string, EnemyDef> = {
@@ -287,6 +332,43 @@ export const ENEMY_DEFS: Record<string, EnemyDef> = {
     armor: 5,
     magicResist: 5,
   },
+  armoredGrunt: {
+    id: 'armoredGrunt',
+    name: 'Armored Grunt',
+    health: 90,
+    speed: 45,
+    reward: 8,
+    color: 0x78909c,
+    size: 12,
+    armor: 8,
+    magicResist: 0,
+  },
+  ghost: {
+    id: 'ghost',
+    name: 'Ghost',
+    health: 70,
+    speed: 85,
+    reward: 10,
+    color: 0xe0e0e0,
+    size: 10,
+    armor: 0,
+    magicResist: 0,
+    alpha: 0.55,
+    physicalImmune: true,
+  },
+  splitter: {
+    id: 'splitter',
+    name: 'Splitter',
+    health: 80,
+    speed: 65,
+    reward: 6,
+    color: 0xf06292,
+    size: 12,
+    armor: 0,
+    magicResist: 0,
+    splits: 'runner',
+    splitCount: 2,
+  },
 };
 
 // ============================================================
@@ -338,54 +420,62 @@ export const WAVE_DEFS: WaveDef[] = [
     ],
     reward: 35,
   },
-  // Wave 5: First tanks
+  // Wave 5: Tanks + first armored grunts (magic towers become valuable)
   {
     groups: [
       { enemyType: 'grunt', count: 5, interval: 1000, delay: 0 },
       { enemyType: 'tank', count: 3, interval: 2000, delay: 2000 },
       { enemyType: 'grunt', count: 5, interval: 800, delay: 1000 },
+      { enemyType: 'armoredGrunt', count: 3, interval: 1800, delay: 3000 },
     ],
     reward: 40,
   },
-  // Wave 6: Mage shields
+  // Wave 6: Mage shields + ghosts (forces elemental damage)
   {
     groups: [
       { enemyType: 'mage', count: 6, interval: 1200, delay: 0 },
       { enemyType: 'runner', count: 8, interval: 600, delay: 2000 },
+      { enemyType: 'ghost', count: 4, interval: 1000, delay: 1000 },
     ],
     reward: 40,
   },
-  // Wave 7: Heavy mixed
+  // Wave 7: Heavy mixed with armored grunts and first splitters
   {
     groups: [
       { enemyType: 'tank', count: 4, interval: 1800, delay: 0 },
       { enemyType: 'mage', count: 4, interval: 1200, delay: 3000 },
       { enemyType: 'runner', count: 10, interval: 500, delay: 2000 },
+      { enemyType: 'armoredGrunt', count: 3, interval: 1500, delay: 1000 },
+      { enemyType: 'splitter', count: 2, interval: 2500, delay: 4500 },
     ],
     reward: 50,
   },
-  // Wave 8: Runner swarm
+  // Wave 8: Runner swarm with ghost flankers
   {
     groups: [
       { enemyType: 'runner', count: 25, interval: 400, delay: 0 },
+      { enemyType: 'ghost', count: 6, interval: 600, delay: 2000 },
     ],
     reward: 45,
   },
-  // Wave 9: Tank wall
+  // Wave 9: Tank wall with armored support
   {
     groups: [
       { enemyType: 'tank', count: 8, interval: 1500, delay: 0 },
       { enemyType: 'mage', count: 6, interval: 1000, delay: 2000 },
+      { enemyType: 'armoredGrunt', count: 4, interval: 1500, delay: 1000 },
     ],
     reward: 55,
   },
-  // Wave 10: BOSS
+  // Wave 10: BOSS + all enemy types
   {
     groups: [
       { enemyType: 'grunt', count: 10, interval: 600, delay: 0 },
       { enemyType: 'boss', count: 1, interval: 0, delay: 3000 },
       { enemyType: 'mage', count: 4, interval: 1000, delay: 2000 },
       { enemyType: 'runner', count: 8, interval: 500, delay: 1000 },
+      { enemyType: 'ghost', count: 4, interval: 800, delay: 1500 },
+      { enemyType: 'splitter', count: 3, interval: 2000, delay: 5000 },
     ],
     reward: 100,
   },
