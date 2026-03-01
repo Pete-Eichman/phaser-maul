@@ -4,7 +4,7 @@ import { GameScene } from '@/scenes/GameScene';
 import { GAME_WIDTH, GAME_HEIGHT, MAP_ROWS, TILE_SIZE } from '@/config/gameConfig';
 
 // UI panel adds extra height below the map
-const UI_HEIGHT = 96;
+const UI_HEIGHT = 136;
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,  // WebGL with Canvas fallback

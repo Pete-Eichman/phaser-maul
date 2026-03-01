@@ -11,7 +11,7 @@ import { WaveManager } from '@/systems/WaveManager';
 import { tileToPixel, pixelToTile } from '@/utils/helpers';
 
 // UI panel height below the game map
-const UI_HEIGHT = 96;
+const UI_HEIGHT = 136;
 
 export class GameScene extends Phaser.Scene {
   // Game state
@@ -222,50 +222,52 @@ export class GameScene extends Phaser.Scene {
     uiBg.setDepth(50);
     uiBg.setStrokeStyle(2, 0x333333);
 
-    // Gold display
-    this.goldText = this.add.text(12, uiY + 8, '', {
+    // Row 1: stats inline across the left, Start Wave on the right
+    this.goldText = this.add.text(12, uiY + 10, '', {
       fontSize: '16px',
       color: COLORS.ui.gold,
       fontStyle: 'bold',
     });
     this.goldText.setDepth(51);
 
-    // Lives display
-    this.livesText = this.add.text(12, uiY + 30, '', {
+    this.livesText = this.add.text(165, uiY + 10, '', {
       fontSize: '16px',
       color: COLORS.ui.health,
       fontStyle: 'bold',
     });
     this.livesText.setDepth(51);
 
-    // Wave display
-    this.waveText = this.add.text(12, uiY + 52, '', {
+    this.waveText = this.add.text(310, uiY + 10, '', {
       fontSize: '14px',
       color: COLORS.ui.wave,
     });
     this.waveText.setDepth(51);
 
-    // Status text
-    this.statusText = this.add.text(12, uiY + 74, '', {
+    this.statusText = this.add.text(12, uiY + 30, '', {
       fontSize: '12px',
       color: '#999999',
     });
     this.statusText.setDepth(51);
 
-    // Tower selection buttons
+    // Divider between rows
+    const divider = this.add.graphics();
+    divider.lineStyle(1, 0x333355, 1);
+    divider.lineBetween(0, uiY + 48, GAME_WIDTH, uiY + 48);
+    divider.setDepth(50);
+
+    // Row 2: tower selection buttons
     const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 155;
     towerIds.forEach((id, i) => {
       const def = TOWER_DEFS[id];
       const btnX = startX + i * 90;
-      const btnY = uiY + UI_HEIGHT / 2;
-      const btn = this.createTowerButton(btnX, btnY, def, `${i + 1}`);
+      const btn = this.createTowerButton(btnX, uiY + 92, def, `${i + 1}`);
       this.towerButtons.push(btn);
     });
 
-    // Start Wave button
+    // Start Wave button (row 1, right side)
     this.startWaveButton = this.createButton(
-      GAME_WIDTH - 80, uiY + 25, 130, 36,
+      GAME_WIDTH - 80, uiY + 24, 130, 36,
       'Start Wave', 0x4caf50,
       () => this.startWave()
     );
@@ -369,7 +371,7 @@ export class GameScene extends Phaser.Scene {
       ? `Placing: ${this.selectedTowerDef.name} (${this.selectedTowerDef.cost}g) — Click to place, Esc to cancel`
       : this.waveManager.waveInProgress
         ? `Wave in progress — ${this.waveManager.getWaveProgress()}`
-        : 'Select a tower (1-4) then click the map to place it';
+        : 'Select a tower (1–7) then click the map to place it';
     this.statusText.setText(status);
   }
 
@@ -445,7 +447,7 @@ export class GameScene extends Phaser.Scene {
     if (tower.canUpgrade()) {
       const cost = tower.getUpgradeCost();
       this.upgradeButton = this.createButton(
-        x, uiY + 55, 130, 28,
+        x, uiY + 68, 130, 30,
         `Upgrade (${cost}g)`,
         this.gold >= cost ? 0x2196f3 : 0x555555,
         () => {
@@ -462,7 +464,7 @@ export class GameScene extends Phaser.Scene {
     // Sell button
     const sellValue = Math.floor(tower.def.cost * 0.6);
     this.sellButton = this.createButton(
-      x, uiY + 80, 130, 22,
+      x, uiY + 104, 130, 24,
       `Sell (${sellValue}g)`,
       0x666666,
       () => {
