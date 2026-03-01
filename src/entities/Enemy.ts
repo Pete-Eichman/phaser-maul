@@ -22,13 +22,20 @@ export class Enemy {
   public magicResist: number;
   public alive: boolean = true;
   public reachedEnd: boolean = false;
+  // True while the death shrink tween is running; false once it finishes.
+  public dying: boolean = false;
+  // Set to true the moment we kick off the death animation so rewards
+  // are only processed once even though the enemy stays in the array.
+  public deathAnimationStarted: boolean = false;
   public def: EnemyDef;
   public waypointIndex: number = 0;
 
+  private scene: Phaser.Scene;
   private waypoints: Waypoint[];
   private targetX: number = 0;
   private targetY: number = 0;
   private statusEffects: StatusEffect[] = [];
+  private spawnTween: Phaser.Tweens.Tween | null = null;
 
   constructor(
     scene: Phaser.Scene,
@@ -36,6 +43,7 @@ export class Enemy {
     waypoints: Waypoint[],
     startWaypointIndex: number = 1,
   ) {
+    this.scene = scene;
     this.def = def;
     this.waypoints = waypoints;
     this.health = def.health;
@@ -52,9 +60,15 @@ export class Enemy {
     this.sprite = scene.add.circle(spawn.x, spawn.y, def.size, def.color);
     this.sprite.setDepth(10);
 
-    if (def.alpha !== undefined) {
-      this.sprite.setAlpha(def.alpha);
-    }
+    // Fade in from invisible to the enemy's target alpha
+    this.sprite.setAlpha(0);
+    const targetAlpha = def.alpha ?? 1;
+    this.spawnTween = scene.tweens.add({
+      targets: this.sprite,
+      alpha: targetAlpha,
+      duration: 200,
+      ease: 'Power1',
+    });
 
     this.healthBar = scene.add.graphics();
     this.healthBar.setDepth(11);
@@ -162,6 +176,24 @@ export class Enemy {
     }
   }
 
+  startDeathAnimation(): void {
+    this.deathAnimationStarted = true;
+    this.dying = true;
+    this.spawnTween?.stop();
+    this.healthBar.setVisible(false);
+    // Flash white, then shrink and fade out
+    this.sprite.setFillStyle(0xffffff);
+    this.scene.tweens.add({
+      targets: this.sprite,
+      scaleX: 0,
+      scaleY: 0,
+      alpha: 0,
+      duration: 200,
+      ease: 'Power2',
+      onComplete: () => { this.dying = false; },
+    });
+  }
+
   private drawHealthBar(): void {
     this.healthBar.clear();
     if (!this.alive) return;
@@ -183,6 +215,7 @@ export class Enemy {
   }
 
   destroy(): void {
+    this.spawnTween?.stop();
     this.sprite.destroy();
     this.healthBar.destroy();
   }
