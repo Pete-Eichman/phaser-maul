@@ -4,6 +4,7 @@ import {
   COLORS, STARTING_GOLD, STARTING_LIVES,
   TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
+  WAVE_DEFS,
 } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID, MapDef } from '@/config/maps';
 import { findPath } from '@/systems/Pathfinder';
@@ -50,6 +51,7 @@ export class GameScene extends Phaser.Scene {
   private waveText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
   private infoPanelText!: Phaser.GameObjects.Text;
+  private infoPanelGraphics!: Phaser.GameObjects.Graphics;
   private towerButtons: Phaser.GameObjects.Container[] = [];
   private startWaveButton!: Phaser.GameObjects.Container;
   private upgradeButton: Phaser.GameObjects.Container | null = null;
@@ -106,6 +108,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.createUI();
+    this.showWavePreview();
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.onPointerMove(pointer);
@@ -350,6 +353,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.infoPanelText.setDepth(52);
 
+    this.infoPanelGraphics = this.add.graphics();
+    this.infoPanelGraphics.setDepth(53);
+
     const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 155;
     towerIds.forEach((id, i) => {
@@ -452,6 +458,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showInfoPanel(def: TowerDef): void {
+    this.infoPanelGraphics.clear();
     const stats = def.levels[0];
     const isPoisonAura = def.id === 'poison';
 
@@ -470,8 +477,44 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private showWavePreview(): void {
+    this.infoPanelGraphics.clear();
+
+    const nextWaveIdx = this.waveManager.currentWave;
+    if (nextWaveIdx >= WAVE_DEFS.length) {
+      this.infoPanelText.setText('');
+      return;
+    }
+
+    const waveDef = WAVE_DEFS[nextWaveIdx];
+    const totalEnemies = waveDef.groups.reduce((sum, g) => sum + g.count, 0);
+    const uiY = MAP_ROWS * TILE_SIZE;
+    // Approximate line height for 11px font + 3px lineSpacing
+    const lineH = 16;
+    const circleX = INFO_PANEL_X + 11;
+    const firstGroupY = uiY + 56 + lineH; // one line below the header
+
+    const textLines = [`Wave ${nextWaveIdx + 1}  ·  ${totalEnemies} enemies`];
+
+    waveDef.groups.forEach((group, i) => {
+      const enemyDef = ENEMY_DEFS[group.enemyType];
+      if (!enemyDef) return;
+      const circleY = firstGroupY + i * lineH + Math.floor(lineH / 2) - 2;
+      this.infoPanelGraphics.fillStyle(enemyDef.color, 1);
+      this.infoPanelGraphics.fillCircle(circleX, circleY, 4);
+      textLines.push(`      ×${group.count}  ${enemyDef.name}`);
+    });
+
+    this.infoPanelText.setText(textLines.join('\n'));
+  }
+
   private clearInfoPanel(): void {
-    this.infoPanelText.setText('');
+    if (!this.waveManager.waveInProgress && !this.waveManager.allWavesComplete) {
+      this.showWavePreview();
+    } else {
+      this.infoPanelText.setText('');
+      this.infoPanelGraphics.clear();
+    }
   }
 
   private createButton(
@@ -712,6 +755,8 @@ export class GameScene extends Phaser.Scene {
     const waveNumber = this.waveManager.currentWave + 1;
     this.waveManager.startNextWave();
     this.showWaveBanner(waveNumber);
+    this.infoPanelText.setText('');
+    this.infoPanelGraphics.clear();
   }
 
   private showWaveBanner(waveNumber: number): void {
@@ -744,6 +789,7 @@ export class GameScene extends Phaser.Scene {
       `Wave Complete! +${reward}g`,
       COLORS.ui.gold,
     );
+    this.showWavePreview();
   }
 
   // ============================================================
