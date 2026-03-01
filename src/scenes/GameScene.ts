@@ -73,10 +73,10 @@ export class GameScene extends Phaser.Scene {
       this.onPointerDown(pointer);
     });
 
-    // Keyboard shortcut: press 1-4 to select tower, Escape to deselect
+    // Keyboard shortcut: press 1-7 to select tower, Escape to deselect
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-      const towerKeys = ['1', '2', '3', '4'];
-      const towerIds = ['arrow', 'cannon', 'ice', 'fire'];
+      const towerKeys = ['1', '2', '3', '4', '5', '6', '7'];
+      const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
       const idx = towerKeys.indexOf(event.key);
       if (idx !== -1) {
         this.selectTowerDef(towerIds[idx]);
@@ -253,11 +253,11 @@ export class GameScene extends Phaser.Scene {
     this.statusText.setDepth(51);
 
     // Tower selection buttons
-    const towerIds = ['arrow', 'cannon', 'ice', 'fire'];
-    const startX = 200;
+    const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
+    const startX = 155;
     towerIds.forEach((id, i) => {
       const def = TOWER_DEFS[id];
-      const btnX = startX + i * 100;
+      const btnX = startX + i * 90;
       const btnY = uiY + UI_HEIGHT / 2;
       const btn = this.createTowerButton(btnX, btnY, def, `${i + 1}`);
       this.towerButtons.push(btn);
@@ -278,7 +278,7 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(51);
 
     // Background
-    const bg = this.add.rectangle(0, 0, 88, 76, 0x2a2a4a);
+    const bg = this.add.rectangle(0, 0, 80, 76, 0x2a2a4a);
     bg.setStrokeStyle(2, 0x444466);
     bg.setInteractive({ useHandCursor: true });
 
@@ -302,7 +302,7 @@ export class GameScene extends Phaser.Scene {
     costText.setOrigin(0.5);
 
     // Hotkey
-    const hotkeyText = this.add.text(36, -30, hotkey, {
+    const hotkeyText = this.add.text(30, -30, hotkey, {
       fontSize: '10px',
       color: '#666688',
     });

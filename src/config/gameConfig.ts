@@ -80,6 +80,7 @@ export interface TowerLevel {
   fireRate: number;     // shots per second
   upgradeCost: number;  // cost to reach THIS level (0 for base)
   slowDuration?: number; // ms; ice tower only
+  dotDuration?: number;  // ms; poison tower only
 }
 
 export interface TowerDef {
@@ -90,10 +91,12 @@ export interface TowerDef {
   color: number;         // Procedural color for the tower sprite
   projectileColor: number;
   projectileSpeed: number;
-  damageType: 'physical' | 'magic' | 'fire' | 'ice';
+  damageType: 'physical' | 'magic' | 'fire' | 'ice' | 'lightning' | 'poison';
   levels: TowerLevel[];
   special?: string;      // Description of special effect
   slowRadius?: number;   // AOE slow radius in pixels; ice tower only
+  chainCount?: number;   // Number of chain targets; lightning tower only
+  chainRadius?: number;  // Chain jump radius in pixels; lightning tower only
 }
 
 export const TOWER_DEFS: Record<string, TowerDef> = {
@@ -160,6 +163,56 @@ export const TOWER_DEFS: Record<string, TowerDef> = {
       { damage: 22, range: 175, fireRate: 1.3, upgradeCost: 95 },
     ],
     special: 'Burns for 5 DPS over 3s (stacks)',
+  },
+  sniper: {
+    id: 'sniper',
+    name: 'Sniper Tower',
+    description: 'Extreme range, devastating single shots',
+    cost: 80,
+    color: 0x7b5ea7,
+    projectileColor: 0xce93d8,
+    projectileSpeed: 650,
+    damageType: 'physical',
+    levels: [
+      { damage: 45, range: 250, fireRate: 0.25, upgradeCost: 0 },
+      { damage: 75, range: 290, fireRate: 0.3,  upgradeCost: 70 },
+      { damage: 115, range: 330, fireRate: 0.35, upgradeCost: 115 },
+    ],
+    special: 'Very long range, very high single-target damage',
+  },
+  lightning: {
+    id: 'lightning',
+    name: 'Lightning Tower',
+    description: 'Zaps enemies in a chain',
+    cost: 90,
+    color: 0xffd54f,
+    projectileColor: 0xffee58,
+    projectileSpeed: 500,
+    damageType: 'lightning',
+    chainCount: 2,
+    chainRadius: 90,
+    levels: [
+      { damage: 18, range: 140, fireRate: 0.7,  upgradeCost: 0 },
+      { damage: 30, range: 160, fireRate: 0.9,  upgradeCost: 70 },
+      { damage: 45, range: 185, fireRate: 1.1,  upgradeCost: 110 },
+    ],
+    special: 'Chains to 2 nearby enemies (50% damage per chain)',
+  },
+  poison: {
+    id: 'poison',
+    name: 'Poison Tower',
+    description: 'Poisons all enemies in range',
+    cost: 70,
+    color: 0x66bb6a,
+    projectileColor: 0xa5d6a7,
+    projectileSpeed: 300,
+    damageType: 'poison',
+    levels: [
+      { damage: 4,  range: 110, fireRate: 0.5, upgradeCost: 0,  dotDuration: 1900 },
+      { damage: 7,  range: 130, fireRate: 0.5, upgradeCost: 55, dotDuration: 1900 },
+      { damage: 11, range: 155, fireRate: 0.5, upgradeCost: 85, dotDuration: 1900 },
+    ],
+    special: 'Poisons all enemies in range (stacks from multiple towers)',
   },
 };
 

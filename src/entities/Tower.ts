@@ -107,8 +107,26 @@ export class Tower {
 
     if (this.fireCooldown > 0) return null;
 
-    // Find closest enemy in range
     const stats = this.getStats();
+
+    // Poison tower: DOT aura — no projectile, applies effect to all in range
+    if (this.def.id === 'poison') {
+      let anyInRange = false;
+      const dotDuration = stats.dotDuration ?? 1900;
+      for (const enemy of enemies) {
+        if (!enemy.alive) continue;
+        const dist = distance(this.sprite.x, this.sprite.y, enemy.sprite.x, enemy.sprite.y);
+        if (dist <= stats.range) {
+          enemy.applyEffect({ type: 'poison', duration: dotDuration, value: stats.damage });
+          anyInRange = true;
+        }
+      }
+      if (anyInRange) {
+        this.fireCooldown = 1000 / stats.fireRate;
+      }
+      return null;
+    }
+
     let closestEnemy: Enemy | null = null;
     let closestDist = Infinity;
 

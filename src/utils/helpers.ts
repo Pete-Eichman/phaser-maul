@@ -33,7 +33,7 @@ export function calculateDamage(
   let reduction = 0;
   if (damageType === 'physical') {
     reduction = armor;
-  } else if (damageType === 'magic' || damageType === 'fire' || damageType === 'ice') {
+  } else if (damageType === 'magic' || damageType === 'fire' || damageType === 'ice' || damageType === 'lightning' || damageType === 'poison') {
     reduction = magicResist;
   }
   return Math.max(1, baseDamage - reduction); // Always deal at least 1 damage
