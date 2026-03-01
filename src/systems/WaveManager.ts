@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import { WAVE_DEFS, ENEMY_DEFS, EnemyDef, SpawnGroup } from '@/config/gameConfig';
-import { Enemy } from '@/entities/Enemy';
+import { Enemy, Waypoint } from '@/entities/Enemy';
 
 interface ActiveGroup {
   group: SpawnGroup;
   spawned: number;
-  timer: number;     // ms until next spawn
+  timer: number;      // ms until next spawn
   delayTimer: number; // ms until group starts
   started: boolean;
 }
@@ -17,6 +17,7 @@ export class WaveManager {
   public enemiesAliveCount: number = 0;
 
   private scene: Phaser.Scene;
+  private waypoints: Waypoint[];
   private activeGroups: ActiveGroup[] = [];
   private totalWaves: number;
   private onEnemySpawn: (enemy: Enemy) => void;
@@ -29,13 +30,15 @@ export class WaveManager {
 
   constructor(
     scene: Phaser.Scene,
+    waypoints: Waypoint[],
     onEnemySpawn: (enemy: Enemy) => void,
     onWaveComplete: (waveReward: number) => void,
     hpMult: number = 1,
     speedMult: number = 1,
-    goldMult: number = 1
+    goldMult: number = 1,
   ) {
     this.scene = scene;
+    this.waypoints = waypoints;
     this.totalWaves = WAVE_DEFS.length;
     this.onEnemySpawn = onEnemySpawn;
     this.onWaveComplete = onWaveComplete;
@@ -56,7 +59,6 @@ export class WaveManager {
     this.totalSpawnedThisWave = 0;
     this.totalToSpawnThisWave = waveDef.groups.reduce((sum, g) => sum + g.count, 0);
 
-    // Initialize spawn groups
     this.activeGroups = waveDef.groups.map((group) => ({
       group,
       spawned: 0,
@@ -72,24 +74,19 @@ export class WaveManager {
     if (!this.waveInProgress) return;
 
     for (const ag of this.activeGroups) {
-      // Wait for delay
       if (!ag.started) {
         ag.delayTimer -= delta;
-        if (ag.delayTimer <= 0) {
-          ag.started = true;
-        }
+        if (ag.delayTimer <= 0) ag.started = true;
         continue;
       }
 
-      // All spawned for this group?
       if (ag.spawned >= ag.group.count) continue;
 
-      // Tick spawn timer
       ag.timer -= delta;
       if (ag.timer <= 0) {
         const baseDef = ENEMY_DEFS[ag.group.enemyType];
         if (baseDef) {
-          const enemy = new Enemy(this.scene, this.scaleDef(baseDef));
+          const enemy = new Enemy(this.scene, this.scaleDef(baseDef), this.waypoints);
           this.onEnemySpawn(enemy);
           this.enemiesAliveCount++;
           this.totalSpawnedThisWave++;
@@ -99,15 +96,14 @@ export class WaveManager {
       }
     }
 
-    // Check if wave is complete (all spawned + all dead)
     const allSpawned = this.totalSpawnedThisWave >= this.totalToSpawnThisWave;
     if (allSpawned && this.enemiesAliveCount <= 0) {
       this.completeWave();
     }
   }
 
-  // Apply difficulty multipliers to a base enemy def — used by WaveManager and
-  // GameScene when spawning split children so they inherit the same scaling.
+  // Apply difficulty multipliers to a base enemy def. Also used by GameScene
+  // when spawning splitter children so they inherit the same scaling.
   scaleDef(base: EnemyDef): EnemyDef {
     return {
       ...base,
@@ -117,8 +113,8 @@ export class WaveManager {
     };
   }
 
-  // Called when a split child is spawned mid-wave so wave completion tracking
-  // accounts for the extra enemies.
+  // Called when a splitter child is spawned mid-wave so wave-completion
+  // accounting stays correct.
   addEnemy(): void {
     this.enemiesAliveCount++;
   }

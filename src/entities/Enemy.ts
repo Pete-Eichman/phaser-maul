@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
-import { EnemyDef, PATH_WAYPOINTS } from '@/config/gameConfig';
+import { EnemyDef } from '@/config/gameConfig';
 import { tileToPixel, distance } from '@/utils/helpers';
+
+export type Waypoint = { x: number; y: number };
 
 export interface StatusEffect {
   type: 'slow' | 'burn' | 'poison';
@@ -23,12 +25,19 @@ export class Enemy {
   public def: EnemyDef;
   public waypointIndex: number = 0;
 
+  private waypoints: Waypoint[];
   private targetX: number = 0;
   private targetY: number = 0;
   private statusEffects: StatusEffect[] = [];
 
-  constructor(scene: Phaser.Scene, def: EnemyDef, startWaypointIndex: number = 1) {
+  constructor(
+    scene: Phaser.Scene,
+    def: EnemyDef,
+    waypoints: Waypoint[],
+    startWaypointIndex: number = 1,
+  ) {
     this.def = def;
+    this.waypoints = waypoints;
     this.health = def.health;
     this.maxHealth = def.health;
     this.speed = def.speed;
@@ -37,10 +46,9 @@ export class Enemy {
     this.armor = def.armor;
     this.magicResist = def.magicResist;
 
-    // Spawn at first waypoint (split children override position after construction)
-    const spawn = tileToPixel(PATH_WAYPOINTS[0].x, PATH_WAYPOINTS[0].y);
+    // Spawn at the first waypoint (split children override position after construction)
+    const spawn = tileToPixel(this.waypoints[0].x, this.waypoints[0].y);
 
-    // Create circle sprite (procedural — no assets needed)
     this.sprite = scene.add.circle(spawn.x, spawn.y, def.size, def.color);
     this.sprite.setDepth(10);
 
@@ -48,7 +56,6 @@ export class Enemy {
       this.sprite.setAlpha(def.alpha);
     }
 
-    // Health bar (drawn above enemy)
     this.healthBar = scene.add.graphics();
     this.healthBar.setDepth(11);
 
@@ -57,12 +64,12 @@ export class Enemy {
   }
 
   private updateTarget(): void {
-    if (this.waypointIndex >= PATH_WAYPOINTS.length) {
+    if (this.waypointIndex >= this.waypoints.length) {
       this.reachedEnd = true;
       this.alive = false;
       return;
     }
-    const wp = PATH_WAYPOINTS[this.waypointIndex];
+    const wp = this.waypoints[this.waypointIndex];
     const pixel = tileToPixel(wp.x, wp.y);
     this.targetX = pixel.x;
     this.targetY = pixel.y;
@@ -71,27 +78,22 @@ export class Enemy {
   update(delta: number): void {
     if (!this.alive) return;
 
-    // Process status effects
     this.processStatusEffects(delta);
 
-    // Move toward current waypoint
     const dist = distance(this.sprite.x, this.sprite.y, this.targetX, this.targetY);
     const moveDistance = this.speed * (delta / 1000);
 
     if (dist <= moveDistance) {
-      // Reached waypoint — move to next
       this.sprite.x = this.targetX;
       this.sprite.y = this.targetY;
       this.waypointIndex++;
       this.updateTarget();
     } else {
-      // Move toward target
       const angle = Math.atan2(this.targetY - this.sprite.y, this.targetX - this.sprite.x);
       this.sprite.x += Math.cos(angle) * moveDistance;
       this.sprite.y += Math.sin(angle) * moveDistance;
     }
 
-    // Update health bar position
     this.drawHealthBar();
   }
 
@@ -128,18 +130,17 @@ export class Enemy {
     }
 
     if (slowMultiplier < 1) {
-      this.sprite.setStrokeStyle(2, 0x4fc3f7); // Blue when slowed
+      this.sprite.setStrokeStyle(2, 0x4fc3f7);
     } else if (burnDPS > 0) {
-      this.sprite.setStrokeStyle(2, 0xff6f00); // Orange when burning
+      this.sprite.setStrokeStyle(2, 0xff6f00);
     } else if (poisonDPS > 0) {
-      this.sprite.setStrokeStyle(2, 0x66bb6a); // Green when poisoned
+      this.sprite.setStrokeStyle(2, 0x66bb6a);
     } else {
       this.sprite.setStrokeStyle(0);
     }
   }
 
   applyEffect(effect: StatusEffect): void {
-    // For slow, replace if stronger; for burn, stack
     if (effect.type === 'slow') {
       const existing = this.statusEffects.find((e) => e.type === 'slow');
       if (existing) {
@@ -171,11 +172,9 @@ export class Enemy {
     const y = this.sprite.y - this.def.size - 8;
     const healthPct = this.health / this.maxHealth;
 
-    // Background
     this.healthBar.fillStyle(0x333333, 0.8);
     this.healthBar.fillRect(x, y, barWidth, barHeight);
 
-    // Health fill (green → yellow → red)
     let color = 0x4caf50;
     if (healthPct < 0.6) color = 0xffeb3b;
     if (healthPct < 0.3) color = 0xf44336;
