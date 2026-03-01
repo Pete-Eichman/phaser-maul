@@ -16,6 +16,8 @@ describe('Damage pipeline', () => {
   it('every tower type deals at least 1 damage to every enemy type at base level', () => {
     for (const tower of Object.values(TOWER_DEFS)) {
       for (const enemy of Object.values(ENEMY_DEFS)) {
+        // Ghost physical immunity is enforced at the Projectile level, not calculateDamage.
+        // This test verifies the calculateDamage floor — Projectile handles the immunity path.
         const dmg = calculateDamage(
           tower.levels[0].damage,
           tower.damageType,
@@ -90,6 +92,26 @@ describe('Damage pipeline', () => {
       lightning.levels[0].damage, 'physical', tank.armor, tank.magicResist,
     );
     expect(lightningDmg).toBeGreaterThan(asPhysical);
+  });
+
+  it('armored grunt takes less physical damage than an unarmored grunt', () => {
+    const arrow = TOWER_DEFS.arrow;
+    const vsGrunt = calculateDamage(
+      arrow.levels[0].damage, 'physical', ENEMY_DEFS.grunt.armor, ENEMY_DEFS.grunt.magicResist,
+    );
+    const vsArmoredGrunt = calculateDamage(
+      arrow.levels[0].damage, 'physical', ENEMY_DEFS.armoredGrunt.armor, ENEMY_DEFS.armoredGrunt.magicResist,
+    );
+    expect(vsArmoredGrunt).toBeLessThan(vsGrunt);
+  });
+
+  it('ghost has physical immunity flag — elemental towers are unaffected by it', () => {
+    expect(ENEMY_DEFS.ghost.physicalImmune).toBe(true);
+    // Elemental towers bypass physical immunity (ghost has no magicResist)
+    const fireDmg = calculateDamage(
+      TOWER_DEFS.fire.levels[0].damage, 'fire', ENEMY_DEFS.ghost.armor, ENEMY_DEFS.ghost.magicResist,
+    );
+    expect(fireDmg).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -169,6 +191,15 @@ describe('Wave escalation', () => {
     };
     // First wave difficulty should be less than final wave difficulty
     expect(difficulty(WAVE_DEFS.length - 1)).toBeGreaterThan(difficulty(0));
+  });
+
+  it('new enemy types appear in wave 5 or later', () => {
+    const newTypes = new Set(['armoredGrunt', 'ghost', 'splitter']);
+    for (let i = 0; i < 4; i++) {
+      for (const group of WAVE_DEFS[i].groups) {
+        expect(newTypes.has(group.enemyType)).toBe(false);
+      }
+    }
   });
 });
 
