@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   TOWER_DEFS, ENEMY_DEFS, WAVE_DEFS,
   MAP_DATA, MAP_ROWS, MAP_COLS, PATH_WAYPOINTS,
+  DIFFICULTY_SETTINGS,
 } from '@/config/gameConfig';
 
 // ─── Tower definitions ────────────────────────────────────────────────────────
@@ -110,8 +111,8 @@ describe('TOWER_DEFS', () => {
 describe('ENEMY_DEFS', () => {
   const enemies = Object.entries(ENEMY_DEFS);
 
-  it('defines exactly 5 enemy types', () => {
-    expect(enemies).toHaveLength(5);
+  it('defines exactly 8 enemy types', () => {
+    expect(enemies).toHaveLength(8);
   });
 
   it('all vital stats are positive', () => {
@@ -138,6 +139,21 @@ describe('ENEMY_DEFS', () => {
   it('runner has the highest speed of all enemy types', () => {
     const maxSpeed = Math.max(...Object.values(ENEMY_DEFS).map(e => e.speed));
     expect(ENEMY_DEFS.runner.speed).toBe(maxSpeed);
+  });
+
+  it('armored grunt has more armor than base grunt', () => {
+    expect(ENEMY_DEFS.armoredGrunt.armor).toBeGreaterThan(ENEMY_DEFS.grunt.armor);
+  });
+
+  it('ghost is marked as physically immune and has no armor', () => {
+    expect(ENEMY_DEFS.ghost.physicalImmune).toBe(true);
+    expect(ENEMY_DEFS.ghost.armor).toBe(0);
+  });
+
+  it('splitter references a valid enemy type', () => {
+    expect(ENEMY_DEFS.splitter.splits).toBeDefined();
+    expect(Object.keys(ENEMY_DEFS)).toContain(ENEMY_DEFS.splitter.splits);
+    expect(ENEMY_DEFS.splitter.splitCount).toBeGreaterThan(0);
   });
 });
 
@@ -241,6 +257,59 @@ describe('WAVE_DEFS', () => {
         expect(group.interval).toBeGreaterThanOrEqual(0);
         expect(group.delay).toBeGreaterThanOrEqual(0);
       }
+    }
+  });
+});
+
+// ─── DIFFICULTY_SETTINGS ─────────────────────────────────────────────────────
+
+describe('DIFFICULTY_SETTINGS', () => {
+  const difficulties = Object.entries(DIFFICULTY_SETTINGS);
+
+  it('defines exactly 3 difficulty levels', () => {
+    expect(difficulties).toHaveLength(3);
+  });
+
+  it('all multipliers are positive', () => {
+    for (const [, diff] of difficulties) {
+      expect(diff.startingGoldMult).toBeGreaterThan(0);
+      expect(diff.startingLivesMult).toBeGreaterThan(0);
+      expect(diff.enemyHpMult).toBeGreaterThan(0);
+      expect(diff.enemySpeedMult).toBeGreaterThan(0);
+      expect(diff.goldMult).toBeGreaterThan(0);
+    }
+  });
+
+  it('normal difficulty uses 1.0 for all multipliers', () => {
+    const n = DIFFICULTY_SETTINGS.normal;
+    expect(n.startingGoldMult).toBe(1);
+    expect(n.startingLivesMult).toBe(1);
+    expect(n.enemyHpMult).toBe(1);
+    expect(n.enemySpeedMult).toBe(1);
+    expect(n.goldMult).toBe(1);
+  });
+
+  it('easy gives more starting resources than hard', () => {
+    expect(DIFFICULTY_SETTINGS.easy.startingGoldMult).toBeGreaterThan(
+      DIFFICULTY_SETTINGS.hard.startingGoldMult
+    );
+    expect(DIFFICULTY_SETTINGS.easy.startingLivesMult).toBeGreaterThan(
+      DIFFICULTY_SETTINGS.hard.startingLivesMult
+    );
+  });
+
+  it('hard has stronger enemies than easy', () => {
+    expect(DIFFICULTY_SETTINGS.hard.enemyHpMult).toBeGreaterThan(
+      DIFFICULTY_SETTINGS.easy.enemyHpMult
+    );
+    expect(DIFFICULTY_SETTINGS.hard.enemySpeedMult).toBeGreaterThan(
+      DIFFICULTY_SETTINGS.easy.enemySpeedMult
+    );
+  });
+
+  it('all difficulties have a non-empty label', () => {
+    for (const [, diff] of difficulties) {
+      expect(diff.label.length).toBeGreaterThan(0);
     }
   });
 });

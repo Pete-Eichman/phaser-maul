@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { EnemyDef, PATH_WAYPOINTS, TILE_SIZE } from '@/config/gameConfig';
+import { EnemyDef, PATH_WAYPOINTS } from '@/config/gameConfig';
 import { tileToPixel, distance } from '@/utils/helpers';
 
 export interface StatusEffect {
@@ -21,15 +21,13 @@ export class Enemy {
   public alive: boolean = true;
   public reachedEnd: boolean = false;
   public def: EnemyDef;
+  public waypointIndex: number = 0;
 
-  private scene: Phaser.Scene;
-  private waypointIndex: number = 0;
   private targetX: number = 0;
   private targetY: number = 0;
   private statusEffects: StatusEffect[] = [];
 
-  constructor(scene: Phaser.Scene, def: EnemyDef) {
-    this.scene = scene;
+  constructor(scene: Phaser.Scene, def: EnemyDef, startWaypointIndex: number = 1) {
     this.def = def;
     this.health = def.health;
     this.maxHealth = def.health;
@@ -39,19 +37,22 @@ export class Enemy {
     this.armor = def.armor;
     this.magicResist = def.magicResist;
 
-    // Spawn at first waypoint
+    // Spawn at first waypoint (split children override position after construction)
     const spawn = tileToPixel(PATH_WAYPOINTS[0].x, PATH_WAYPOINTS[0].y);
 
     // Create circle sprite (procedural — no assets needed)
     this.sprite = scene.add.circle(spawn.x, spawn.y, def.size, def.color);
     this.sprite.setDepth(10);
 
+    if (def.alpha !== undefined) {
+      this.sprite.setAlpha(def.alpha);
+    }
+
     // Health bar (drawn above enemy)
     this.healthBar = scene.add.graphics();
     this.healthBar.setDepth(11);
 
-    // Set first target
-    this.waypointIndex = 1;
+    this.waypointIndex = startWaypointIndex;
     this.updateTarget();
   }
 

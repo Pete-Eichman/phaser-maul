@@ -6,6 +6,7 @@ import { distance, calculateDamage } from '@/utils/helpers';
 export class Projectile {
   public sprite: Phaser.GameObjects.Arc;
   public alive: boolean = true;
+  public onDamageDealt: ((x: number, y: number, damage: number, label?: string) => void) | null = null;
 
   private scene: Phaser.Scene;
   private target: Enemy;
@@ -82,6 +83,15 @@ export class Projectile {
   }
 
   private onHit(allEnemies: Enemy[]): void {
+    const hitX = this.target.sprite.x;
+    const hitY = this.target.sprite.y;
+
+    // Physical immunity check — ghost-type enemies
+    if (this.damageType === 'physical' && this.target.def.physicalImmune) {
+      this.onDamageDealt?.(hitX, hitY, 0, 'IMMUNE');
+      return;
+    }
+
     // Apply damage to primary target
     const dmg = calculateDamage(
       this.damage,
@@ -90,17 +100,13 @@ export class Projectile {
       this.target.magicResist
     );
     this.target.takeDamage(dmg, this.damageType);
+    this.onDamageDealt?.(hitX, hitY, Math.round(dmg));
 
     // Splash damage (cannon)
     if (this.splashRadius > 0) {
       for (const enemy of allEnemies) {
         if (enemy === this.target || !enemy.alive) continue;
-        const dist = distance(
-          this.target.sprite.x,
-          this.target.sprite.y,
-          enemy.sprite.x,
-          enemy.sprite.y
-        );
+        const dist = distance(hitX, hitY, enemy.sprite.x, enemy.sprite.y);
         if (dist <= this.splashRadius) {
           const splashDmg = calculateDamage(
             this.damage * 0.5, // 50% splash
@@ -121,12 +127,7 @@ export class Projectile {
       if (this.slowRadius > 0) {
         for (const enemy of allEnemies) {
           if (enemy === this.target || !enemy.alive) continue;
-          const dist = distance(
-            this.target.sprite.x,
-            this.target.sprite.y,
-            enemy.sprite.x,
-            enemy.sprite.y
-          );
+          const dist = distance(hitX, hitY, enemy.sprite.x, enemy.sprite.y);
           if (dist <= this.slowRadius) {
             enemy.applyEffect(slowEffect);
           }
