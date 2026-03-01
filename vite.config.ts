@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
@@ -14,5 +14,13 @@ export default defineConfig({
   build: {
     target: 'ES2020',
     outDir: 'dist',
+  },
+  test: {
+    environment: 'node',
+    include: ['src/__tests__/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/utils/**', 'src/config/**'],
+    },
   },
 });
