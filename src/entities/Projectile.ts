@@ -19,6 +19,9 @@ export class Projectile {
   private slowDuration: number = 0;
   private chainCount: number = 0;
   private chainRadius: number = 0;
+  private trailGraphics: Phaser.GameObjects.Graphics;
+  private prevX: number;
+  private prevY: number;
 
   constructor(
     scene: Phaser.Scene,
@@ -54,6 +57,11 @@ export class Projectile {
     const size = towerDef.id === 'cannon' ? 5 : 3;
     this.sprite = scene.add.circle(x, y, size, towerDef.projectileColor);
     this.sprite.setDepth(15);
+
+    this.trailGraphics = scene.add.graphics();
+    this.trailGraphics.setDepth(14);
+    this.prevX = x;
+    this.prevY = y;
   }
 
   update(delta: number, allEnemies: Enemy[]): void {
@@ -77,14 +85,43 @@ export class Projectile {
       this.alive = false;
     } else {
       const angle = Math.atan2(targetY - this.sprite.y, targetX - this.sprite.x);
-      this.sprite.x += Math.cos(angle) * moveDistance;
-      this.sprite.y += Math.sin(angle) * moveDistance;
+      const newX = this.sprite.x + Math.cos(angle) * moveDistance;
+      const newY = this.sprite.y + Math.sin(angle) * moveDistance;
+
+      this.trailGraphics.clear();
+      this.trailGraphics.lineStyle(2, this.towerDef.projectileColor, 0.45);
+      this.trailGraphics.lineBetween(this.sprite.x, this.sprite.y, newX, newY);
+
+      this.sprite.x = newX;
+      this.sprite.y = newY;
+    }
+  }
+
+  private spawnImpactBurst(x: number, y: number): void {
+    const count = 4;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const particle = this.scene.add.circle(x, y, 2, this.towerDef.projectileColor);
+      particle.setDepth(15);
+      this.scene.tweens.add({
+        targets: particle,
+        x: x + Math.cos(angle) * 12,
+        y: y + Math.sin(angle) * 12,
+        scaleX: 0.1,
+        scaleY: 0.1,
+        alpha: 0,
+        duration: 150,
+        ease: 'Power2',
+        onComplete: () => particle.destroy(),
+      });
     }
   }
 
   private onHit(allEnemies: Enemy[]): void {
     const hitX = this.target.sprite.x;
     const hitY = this.target.sprite.y;
+
+    this.spawnImpactBurst(hitX, hitY);
 
     // Physical immunity check — ghost-type enemies
     if (this.damageType === 'physical' && this.target.def.physicalImmune) {
@@ -188,5 +225,6 @@ export class Projectile {
 
   destroy(): void {
     this.sprite.destroy();
+    this.trailGraphics.destroy();
   }
 }
