@@ -1,12 +1,16 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, COLORS, DIFFICULTY_SETTINGS, DifficultyKey } from '@/config/gameConfig';
+import { MAP_DEFS, DEFAULT_MAP_ID } from '@/config/maps';
 
 const UI_HEIGHT = 136;
 const CANVAS_HEIGHT = GAME_HEIGHT + UI_HEIGHT;
 
 export class MenuScene extends Phaser.Scene {
   private selectedDifficulty: DifficultyKey = 'normal';
+  private selectedMapId: string = DEFAULT_MAP_ID;
+
   private difficultyButtons: { key: DifficultyKey; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
+  private mapButtons: { id: string; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -15,38 +19,37 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     const cx = GAME_WIDTH / 2;
 
-    // Backdrop card behind the menu content
-    this.add.rectangle(cx, CANVAS_HEIGHT / 2 - 20, 680, 540, 0x0d1428)
+    // Backdrop card
+    this.add.rectangle(cx, CANVAS_HEIGHT / 2 - 10, 680, 660, 0x0d1428)
       .setStrokeStyle(1, 0x243050);
 
     this.buildTitle(cx);
     this.buildStartButton(cx);
+    this.buildMapSelector(cx);
     this.buildDifficultySelector(cx);
     this.buildControlsPanel(cx);
   }
 
   private buildTitle(cx: number): void {
-    // Drop shadow layer
-    this.add.text(cx + 2, 152, 'PHASER MAUL', {
+    this.add.text(cx + 2, 112, 'PHASER MAUL', {
       fontSize: '64px',
       color: '#000000',
       fontStyle: 'bold',
       fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5).setAlpha(0.55);
 
-    this.add.text(cx, 150, 'PHASER MAUL', {
+    this.add.text(cx, 110, 'PHASER MAUL', {
       fontSize: '64px',
       color: COLORS.ui.gold,
       fontStyle: 'bold',
       fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
-    // Gold rule
     const gfx = this.add.graphics();
     gfx.lineStyle(1, 0xffd700, 0.35);
-    gfx.lineBetween(cx - 220, 195, cx + 220, 195);
+    gfx.lineBetween(cx - 220, 155, cx + 220, 155);
 
-    this.add.text(cx, 215, 'A tower defense game', {
+    this.add.text(cx, 175, 'A tower defense game', {
       fontSize: '17px',
       color: '#7a8eaa',
       fontFamily: 'Arial, sans-serif',
@@ -55,7 +58,7 @@ export class MenuScene extends Phaser.Scene {
 
   private buildStartButton(cx: number): void {
     const color = 0x1d7a35;
-    const container = this.add.container(cx, 280);
+    const container = this.add.container(cx, 235);
 
     const bg = this.add.rectangle(0, 0, 220, 50, color);
     bg.setStrokeStyle(1, 0x2eaa50);
@@ -71,7 +74,12 @@ export class MenuScene extends Phaser.Scene {
 
     container.add([bg, label]);
 
-    bg.on('pointerdown', () => this.scene.start('GameScene', { difficulty: this.selectedDifficulty }));
+    bg.on('pointerdown', () => {
+      this.scene.start('GameScene', {
+        difficulty: this.selectedDifficulty,
+        mapId: this.selectedMapId,
+      });
+    });
     bg.on('pointerover', () => {
       bg.setFillStyle(0x2eaa50);
       bg.setStrokeStyle(1, 0x55cc70);
@@ -82,8 +90,81 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
+  private buildMapSelector(cx: number): void {
+    this.add.text(cx, 283, 'Map', {
+      fontSize: '13px',
+      color: '#7a8eaa',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    const maps = Object.values(MAP_DEFS);
+    const difficultyColors: Record<string, number> = {
+      easy: 0x1b5e20,
+      medium: 0x0d3b6e,
+      hard: 0x7f0000,
+    };
+
+    const btnW = 140;
+    const btnH = 44;
+    const gap = 10;
+    const totalW = maps.length * btnW + (maps.length - 1) * gap;
+    const startX = cx - totalW / 2;
+
+    this.mapButtons = [];
+
+    maps.forEach((map, i) => {
+      const x = startX + i * (btnW + gap) + btnW / 2;
+      const y = 320;
+      const color = difficultyColors[map.difficulty] ?? 0x222244;
+      const isSelected = map.id === this.selectedMapId;
+
+      const bg = this.add.rectangle(x, y, btnW, btnH, color);
+      bg.setStrokeStyle(isSelected ? 2 : 1, isSelected ? 0xffffff : 0x444466);
+      bg.setInteractive({ useHandCursor: true });
+
+      const nameText = this.add.text(x, y - 8, map.name, {
+        fontSize: '13px',
+        color: isSelected ? '#ffffff' : '#aaaaaa',
+        fontStyle: isSelected ? 'bold' : 'normal',
+        fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+
+      const diffLabel = map.difficulty.charAt(0).toUpperCase() + map.difficulty.slice(1);
+      const diffText = this.add.text(x, y + 10, diffLabel, {
+        fontSize: '11px',
+        color: isSelected ? '#cccccc' : '#777777',
+        fontFamily: 'Arial, sans-serif',
+      }).setOrigin(0.5);
+
+      this.mapButtons.push({ id: map.id, bg, text: nameText });
+
+      bg.on('pointerdown', () => {
+        this.selectedMapId = map.id;
+        this.refreshMapButtons();
+      });
+
+      bg.on('pointerover', () => {
+        if (map.id !== this.selectedMapId) bg.setFillStyle(color + 0x111111);
+      });
+      bg.on('pointerout', () => {
+        if (map.id !== this.selectedMapId) bg.setFillStyle(color);
+      });
+
+      // Keep diffText alive (referenced so it doesn't get GC'd)
+      void diffText;
+    });
+  }
+
+  private refreshMapButtons(): void {
+    for (const { id, bg, text } of this.mapButtons) {
+      const selected = id === this.selectedMapId;
+      bg.setStrokeStyle(selected ? 2 : 1, selected ? 0xffffff : 0x444466);
+      text.setStyle({ color: selected ? '#ffffff' : '#aaaaaa', fontStyle: selected ? 'bold' : 'normal' });
+    }
+  }
+
   private buildDifficultySelector(cx: number): void {
-    this.add.text(cx, 328, 'Difficulty', {
+    this.add.text(cx, 362, 'Difficulty', {
       fontSize: '13px',
       color: '#7a8eaa',
       fontFamily: 'Arial, sans-serif',
@@ -105,7 +186,7 @@ export class MenuScene extends Phaser.Scene {
 
     options.forEach(({ key, label, color }, i) => {
       const x = startX + i * (btnW + gap) + btnW / 2;
-      const y = 357;
+      const y = 391;
 
       const bg = this.add.rectangle(x, y, btnW, btnH, color);
       const isSelected = key === this.selectedDifficulty;
@@ -125,7 +206,6 @@ export class MenuScene extends Phaser.Scene {
         this.selectedDifficulty = key;
         this.refreshDifficultyButtons();
       });
-
       bg.on('pointerover', () => {
         if (key !== this.selectedDifficulty) bg.setFillStyle(color + 0x111111);
       });
@@ -133,6 +213,19 @@ export class MenuScene extends Phaser.Scene {
         if (key !== this.selectedDifficulty) bg.setFillStyle(color);
       });
     });
+
+    // Difficulty descriptions — shown below the buttons as subtle context
+    const diffDescs: Record<DifficultyKey, string> = {
+      easy:   DIFFICULTY_SETTINGS.easy.label + ' — more gold, more lives, weaker enemies',
+      normal: DIFFICULTY_SETTINGS.normal.label + ' — balanced for a first run',
+      hard:   DIFFICULTY_SETTINGS.hard.label + ' — less gold, stronger enemies',
+    };
+
+    this.add.text(cx, 416, diffDescs[this.selectedDifficulty], {
+      fontSize: '11px',
+      color: '#666677',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
   }
 
   private refreshDifficultyButtons(): void {
@@ -145,8 +238,8 @@ export class MenuScene extends Phaser.Scene {
 
   private buildControlsPanel(cx: number): void {
     const panelW = 540;
-    const panelH = 162;
-    const panelY = 480;
+    const panelH = 148;
+    const panelY = 508;
     const top = panelY - panelH / 2;
 
     this.add.rectangle(cx, panelY, panelW, panelH, COLORS.ui.panel)
@@ -159,7 +252,6 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5, 0.5);
 
-    // Divider under header
     const gfx = this.add.graphics();
     gfx.lineStyle(1, 0x2a3a5e, 1);
     gfx.lineBetween(cx - 260, top + 36, cx + 260, top + 36);
@@ -175,7 +267,7 @@ export class MenuScene extends Phaser.Scene {
     const descX = cx - 80;
 
     rows.forEach(([key, desc], i) => {
-      const y = top + 52 + i * 27;
+      const y = top + 52 + i * 25;
       this.add.text(keyX, y, key, {
         fontSize: '13px',
         color: COLORS.ui.gold,

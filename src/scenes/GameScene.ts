@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS, GAME_WIDTH, GAME_HEIGHT,
-  MAP_DATA, COLORS, STARTING_GOLD, STARTING_LIVES,
-  TOWER_DEFS, TowerDef, PATH_WAYPOINTS,
+  COLORS, STARTING_GOLD, STARTING_LIVES,
+  TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
 } from '@/config/gameConfig';
+import { MAP_DEFS, DEFAULT_MAP_ID, MapDef } from '@/config/maps';
+import { findPath } from '@/systems/Pathfinder';
 import { Tower } from '@/entities/Tower';
-import { Enemy } from '@/entities/Enemy';
+import { Enemy, Waypoint } from '@/entities/Enemy';
 import { Projectile } from '@/entities/Projectile';
 import { WaveManager } from '@/systems/WaveManager';
 import { tileToPixel, pixelToTile } from '@/utils/helpers';
@@ -21,6 +23,11 @@ export class GameScene extends Phaser.Scene {
   private gameOver: boolean = false;
   private gameWon: boolean = false;
   private difficultyKey: DifficultyKey = 'normal';
+  private mapId: string = DEFAULT_MAP_ID;
+
+  // Active map data (set in init, used throughout)
+  private mapDef!: MapDef;
+  private waypoints: Waypoint[] = [];
 
   // Entities
   private towers: Tower[] = [];
@@ -47,8 +54,15 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  init(data: { difficulty?: DifficultyKey }): void {
+  init(data: { difficulty?: DifficultyKey; mapId?: string }): void {
     this.difficultyKey = data.difficulty ?? 'normal';
+    this.mapId = data.mapId ?? DEFAULT_MAP_ID;
+
+    // Load map definition and compute waypoints via A*
+    this.mapDef = MAP_DEFS[this.mapId] ?? MAP_DEFS[DEFAULT_MAP_ID];
+    const rawWaypoints = findPath(this.mapDef.grid, this.mapDef.start, this.mapDef.end);
+    this.waypoints = rawWaypoints;
+
     // Reset state so restarts start clean
     this.gameOver = false;
     this.gameWon = false;
@@ -67,27 +81,23 @@ export class GameScene extends Phaser.Scene {
     this.gold = Math.round(STARTING_GOLD * diff.startingGoldMult);
     this.lives = Math.round(STARTING_LIVES * diff.startingLivesMult);
 
-    // Draw the tile map
     this.drawMap();
 
-    // Hover indicator for tower placement
     this.hoverGraphics = this.add.graphics();
     this.hoverGraphics.setDepth(20);
 
-    // Initialize wave manager with difficulty scaling
     this.waveManager = new WaveManager(
       this,
+      this.waypoints,
       (enemy) => this.enemies.push(enemy),
       (reward) => this.onWaveComplete(reward),
       diff.enemyHpMult,
       diff.enemySpeedMult,
-      diff.goldMult
+      diff.goldMult,
     );
 
-    // Create UI
     this.createUI();
 
-    // Input: tower placement
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.onPointerMove(pointer);
     });
@@ -96,27 +106,20 @@ export class GameScene extends Phaser.Scene {
       this.onPointerDown(pointer);
     });
 
-    // Keyboard shortcut: press 1-7 to select tower, Escape to deselect
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
       const towerKeys = ['1', '2', '3', '4', '5', '6', '7'];
       const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
       const idx = towerKeys.indexOf(event.key);
-      if (idx !== -1) {
-        this.selectTowerDef(towerIds[idx]);
-      }
-      if (event.key === 'Escape') {
-        this.deselectAll();
-      }
+      if (idx !== -1) this.selectTowerDef(towerIds[idx]);
+      if (event.key === 'Escape') this.deselectAll();
     });
   }
 
   update(_time: number, delta: number): void {
     if (this.gameOver || this.gameWon) return;
 
-    // Update wave spawning
     this.waveManager.update(delta);
 
-    // Update enemies
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
       enemy.update(delta);
@@ -126,17 +129,16 @@ export class GameScene extends Phaser.Scene {
           this.lives--;
           this.waveManager.onEnemyReachedEnd();
         } else {
-          // Killed — give gold
           this.gold += enemy.reward;
           this.waveManager.onEnemyDied();
 
-          // Splitter: spawn children at the parent's current position and waypoint
+          // Splitter: spawn children at the parent's position and waypoint
           if (enemy.def.splits && enemy.def.splitCount) {
             const childBaseDef: EnemyDef | undefined = ENEMY_DEFS[enemy.def.splits];
             if (childBaseDef) {
               const childDef = this.waveManager.scaleDef(childBaseDef);
               for (let j = 0; j < enemy.def.splitCount; j++) {
-                const child = new Enemy(this, childDef, enemy.waypointIndex);
+                const child = new Enemy(this, childDef, this.waypoints, enemy.waypointIndex);
                 child.sprite.setPosition(enemy.sprite.x, enemy.sprite.y);
                 this.enemies.push(child);
                 this.waveManager.addEnemy();
@@ -155,7 +157,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update towers — fire at enemies
     for (const tower of this.towers) {
       const projectile = tower.update(delta, this.enemies);
       if (projectile) {
@@ -171,7 +172,6 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update projectiles
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
       proj.update(delta, this.enemies);
@@ -182,12 +182,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Check win condition
     if (this.waveManager.allWavesComplete && this.enemies.length === 0) {
       this.endGame(true);
     }
 
-    // Update UI text
     this.updateUI();
   }
 
@@ -196,19 +194,18 @@ export class GameScene extends Phaser.Scene {
   // ============================================================
 
   private drawMap(): void {
+    const grid = this.mapDef.grid;
+
     for (let row = 0; row < MAP_ROWS; row++) {
       for (let col = 0; col < MAP_COLS; col++) {
-        const tile = MAP_DATA[row][col];
+        const tile = grid[row][col];
         const x = col * TILE_SIZE;
         const y = row * TILE_SIZE;
 
         let color: number;
-        if (tile === 1) {
+        if (tile === 1 || tile === 2) {
           color = COLORS.path;
-        } else if (tile === 2) {
-          color = COLORS.path; // Spawn/exit zones look like path
         } else {
-          // Checkerboard grass for visual variety
           color = (row + col) % 2 === 0 ? COLORS.grass : COLORS.grassAlt;
         }
 
@@ -217,39 +214,40 @@ export class GameScene extends Phaser.Scene {
           y + TILE_SIZE / 2,
           TILE_SIZE,
           TILE_SIZE,
-          color
+          color,
         );
         rect.setDepth(0);
 
-        // Path border effect
         if (tile === 1) {
           rect.setStrokeStyle(1, COLORS.pathBorder, 0.4);
         }
       }
     }
 
-    // Draw spawn/exit markers
-    const spawn = tileToPixel(PATH_WAYPOINTS[0].x, PATH_WAYPOINTS[0].y);
-    const exit = tileToPixel(
-      PATH_WAYPOINTS[PATH_WAYPOINTS.length - 1].x,
-      PATH_WAYPOINTS[PATH_WAYPOINTS.length - 1].y
-    );
+    // Spawn and exit markers from computed waypoints
+    if (this.waypoints.length >= 2) {
+      const spawn = tileToPixel(this.waypoints[0].x, this.waypoints[0].y);
+      const exit = tileToPixel(
+        this.waypoints[this.waypoints.length - 1].x,
+        this.waypoints[this.waypoints.length - 1].y,
+      );
 
-    const spawnLabel = this.add.text(spawn.x, spawn.y - 20, 'SPAWN', {
-      fontSize: '11px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    });
-    spawnLabel.setOrigin(0.5);
-    spawnLabel.setDepth(2);
+      const spawnLabel = this.add.text(spawn.x, spawn.y - 20, 'SPAWN', {
+        fontSize: '11px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      });
+      spawnLabel.setOrigin(0.5);
+      spawnLabel.setDepth(2);
 
-    const exitLabel = this.add.text(exit.x, exit.y + 20, 'EXIT', {
-      fontSize: '11px',
-      color: '#ff4444',
-      fontStyle: 'bold',
-    });
-    exitLabel.setOrigin(0.5);
-    exitLabel.setDepth(2);
+      const exitLabel = this.add.text(exit.x, exit.y + 20, 'EXIT', {
+        fontSize: '11px',
+        color: '#ff4444',
+        fontStyle: 'bold',
+      });
+      exitLabel.setOrigin(0.5);
+      exitLabel.setDepth(2);
+    }
   }
 
   // ============================================================
@@ -259,16 +257,14 @@ export class GameScene extends Phaser.Scene {
   private createUI(): void {
     const uiY = MAP_ROWS * TILE_SIZE;
 
-    // UI background panel
     const uiBg = this.add.rectangle(
       GAME_WIDTH / 2, uiY + UI_HEIGHT / 2,
       GAME_WIDTH, UI_HEIGHT,
-      COLORS.ui.panel
+      COLORS.ui.panel,
     );
     uiBg.setDepth(50);
     uiBg.setStrokeStyle(2, 0x333333);
 
-    // Row 1: stats inline across the left, Start Wave on the right
     this.goldText = this.add.text(12, uiY + 10, '', {
       fontSize: '16px',
       color: COLORS.ui.gold,
@@ -295,13 +291,11 @@ export class GameScene extends Phaser.Scene {
     });
     this.statusText.setDepth(51);
 
-    // Divider between rows
     const divider = this.add.graphics();
     divider.lineStyle(1, 0x333355, 1);
     divider.lineBetween(0, uiY + 48, GAME_WIDTH, uiY + 48);
     divider.setDepth(50);
 
-    // Row 2: tower selection buttons
     const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 155;
     towerIds.forEach((id, i) => {
@@ -311,37 +305,32 @@ export class GameScene extends Phaser.Scene {
       this.towerButtons.push(btn);
     });
 
-    // Start Wave button (row 1, right side)
     this.startWaveButton = this.createButton(
       GAME_WIDTH - 80, uiY + 24, 130, 36,
       'Start Wave', 0x4caf50,
-      () => this.startWave()
+      () => this.startWave(),
     );
   }
 
   private createTowerButton(
-    x: number, y: number, def: TowerDef, hotkey: string
+    x: number, y: number, def: TowerDef, hotkey: string,
   ): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
     container.setDepth(51);
 
-    // Background
     const bg = this.add.rectangle(0, 0, 80, 76, 0x2a2a4a);
     bg.setStrokeStyle(2, 0x444466);
     bg.setInteractive({ useHandCursor: true });
 
-    // Tower color swatch
     const swatch = this.add.rectangle(0, -18, 20, 20, def.color);
     swatch.setStrokeStyle(1, 0x222222);
 
-    // Name
     const nameText = this.add.text(0, 0, def.name, {
       fontSize: '10px',
       color: '#cccccc',
     });
     nameText.setOrigin(0.5);
 
-    // Cost
     const costText = this.add.text(0, 14, `${def.cost}g`, {
       fontSize: '11px',
       color: COLORS.ui.gold,
@@ -349,7 +338,6 @@ export class GameScene extends Phaser.Scene {
     });
     costText.setOrigin(0.5);
 
-    // Hotkey
     const hotkeyText = this.add.text(30, -30, hotkey, {
       fontSize: '10px',
       color: '#666688',
@@ -358,15 +346,8 @@ export class GameScene extends Phaser.Scene {
 
     container.add([bg, swatch, nameText, costText, hotkeyText]);
 
-    // Click to select
-    bg.on('pointerdown', () => {
-      this.selectTowerDef(def.id);
-    });
-
-    bg.on('pointerover', () => {
-      bg.setFillStyle(0x3a3a5a);
-    });
-
+    bg.on('pointerdown', () => this.selectTowerDef(def.id));
+    bg.on('pointerover', () => bg.setFillStyle(0x3a3a5a));
     bg.on('pointerout', () => {
       bg.setFillStyle(this.selectedTowerDef?.id === def.id ? 0x3a3a5a : 0x2a2a4a);
     });
@@ -376,7 +357,7 @@ export class GameScene extends Phaser.Scene {
 
   private createButton(
     x: number, y: number, width: number, height: number,
-    label: string, color: number, onClick: () => void
+    label: string, color: number, onClick: () => void,
   ): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
     container.setDepth(51);
@@ -410,7 +391,7 @@ export class GameScene extends Phaser.Scene {
     this.livesText.setText(`Lives: ${this.lives}`);
     this.waveText.setText(
       `Wave: ${this.waveManager.currentWave + (this.waveManager.waveInProgress ? 1 : 0)}` +
-      ` / ${this.waveManager.getTotalWaves()}`
+      ` / ${this.waveManager.getTotalWaves()}`,
     );
 
     const status = this.selectedTowerDef
@@ -429,8 +410,6 @@ export class GameScene extends Phaser.Scene {
     this.hoverGraphics.clear();
 
     if (!this.selectedTowerDef) return;
-
-    // Only show hover on map area
     if (pointer.y >= MAP_ROWS * TILE_SIZE) return;
 
     const tile = pixelToTile(pointer.x, pointer.y);
@@ -442,10 +421,9 @@ export class GameScene extends Phaser.Scene {
     this.hoverGraphics.fillStyle(color, 0.4);
     this.hoverGraphics.fillRect(
       tile.x * TILE_SIZE, tile.y * TILE_SIZE,
-      TILE_SIZE, TILE_SIZE
+      TILE_SIZE, TILE_SIZE,
     );
 
-    // Show range preview
     if (canBuild && this.selectedTowerDef) {
       const center = tileToPixel(tile.x, tile.y);
       const range = this.selectedTowerDef.levels[0].range;
@@ -455,12 +433,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
-    // Clicking on map area
     if (pointer.y < MAP_ROWS * TILE_SIZE) {
       if (this.selectedTowerDef) {
         this.tryPlaceTower(pointer);
       } else {
-        // Try to select an existing tower
         this.trySelectTower(pointer);
       }
     }
@@ -468,11 +444,7 @@ export class GameScene extends Phaser.Scene {
 
   private trySelectTower(pointer: Phaser.Input.Pointer): void {
     const tile = pixelToTile(pointer.x, pointer.y);
-
-    // Find tower at this tile
-    const tower = this.towers.find(
-      (t) => t.tileX === tile.x && t.tileY === tile.y
-    );
+    const tower = this.towers.find((t) => t.tileX === tile.x && t.tileY === tile.y);
 
     this.clearTowerSelection();
 
@@ -489,7 +461,6 @@ export class GameScene extends Phaser.Scene {
     const uiY = MAP_ROWS * TILE_SIZE;
     const x = GAME_WIDTH - 80;
 
-    // Show upgrade button if possible
     if (tower.canUpgrade()) {
       const cost = tower.getUpgradeCost();
       this.upgradeButton = this.createButton(
@@ -503,11 +474,10 @@ export class GameScene extends Phaser.Scene {
             this.clearTowerInfo();
             this.showTowerInfo(tower);
           }
-        }
+        },
       );
     }
 
-    // Sell button
     const sellValue = Math.floor(tower.def.cost * 0.6);
     this.sellButton = this.createButton(
       x, uiY + 104, 130, 24,
@@ -519,7 +489,7 @@ export class GameScene extends Phaser.Scene {
         if (idx !== -1) this.towers.splice(idx, 1);
         tower.destroy();
         this.clearTowerSelection();
-      }
+      },
     );
   }
 
@@ -548,7 +518,6 @@ export class GameScene extends Phaser.Scene {
     if (!def) return;
 
     if (this.selectedTowerDef?.id === towerId) {
-      // Toggle off
       this.selectedTowerDef = null;
     } else {
       this.selectedTowerDef = def;
@@ -562,15 +531,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private canBuildAt(tileX: number, tileY: number): boolean {
-    // Check map tile is buildable (grass = 0)
     if (tileY < 0 || tileY >= MAP_ROWS || tileX < 0 || tileX >= MAP_COLS) return false;
-    if (MAP_DATA[tileY][tileX] !== 0) return false;
-
-    // Check no existing tower
-    const occupied = this.towers.some(
-      (t) => t.tileX === tileX && t.tileY === tileY
-    );
-    return !occupied;
+    if (this.mapDef.grid[tileY][tileX] !== 0) return false;
+    return !this.towers.some((t) => t.tileX === tileX && t.tileY === tileY);
   }
 
   private tryPlaceTower(pointer: Phaser.Input.Pointer): void {
@@ -579,21 +542,18 @@ export class GameScene extends Phaser.Scene {
     const tile = pixelToTile(pointer.x, pointer.y);
     if (!this.canBuildAt(tile.x, tile.y)) return;
 
-    // Check gold
     if (this.gold < this.selectedTowerDef.cost) {
       this.showFloatingText(pointer.x, pointer.y, 'Not enough gold!', '#ff4444');
       return;
     }
 
-    // Place tower
     this.gold -= this.selectedTowerDef.cost;
     const center = tileToPixel(tile.x, tile.y);
     const tower = new Tower(
       this, center.x, center.y,
-      tile.x, tile.y, this.selectedTowerDef.id
+      tile.x, tile.y, this.selectedTowerDef.id,
     );
 
-    // Tower click handler for selection
     tower.sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!this.selectedTowerDef) {
         pointer.event.stopPropagation();
@@ -609,7 +569,7 @@ export class GameScene extends Phaser.Scene {
     this.showFloatingText(
       center.x, center.y - 20,
       `-${this.selectedTowerDef.cost}g`,
-      COLORS.ui.gold
+      COLORS.ui.gold,
     );
   }
 
@@ -628,7 +588,7 @@ export class GameScene extends Phaser.Scene {
     this.showFloatingText(
       GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40,
       `Wave Complete! +${reward}g`,
-      COLORS.ui.gold
+      COLORS.ui.gold,
     );
   }
 
@@ -647,18 +607,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showEndScreen(message: string, color: string): void {
-    // Dim overlay
     const overlay = this.add.rectangle(
       GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2,
       GAME_WIDTH, MAP_ROWS * TILE_SIZE,
-      0x000000, 0.6
+      0x000000, 0.6,
     );
     overlay.setDepth(100);
 
     const text = this.add.text(
       GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 - 20,
       message,
-      { fontSize: '48px', color, fontStyle: 'bold' }
+      { fontSize: '48px', color, fontStyle: 'bold' },
     );
     text.setOrigin(0.5);
     text.setDepth(101);
@@ -666,16 +625,15 @@ export class GameScene extends Phaser.Scene {
     const subText = this.add.text(
       GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 + 30,
       `Waves Survived: ${this.waveManager.currentWave} / ${this.waveManager.getTotalWaves()}`,
-      { fontSize: '18px', color: '#cccccc' }
+      { fontSize: '18px', color: '#cccccc' },
     );
     subText.setOrigin(0.5);
     subText.setDepth(101);
 
-    // Restart button — pass difficulty so Play Again uses same setting
     const restartBtn = this.createButton(
       GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 + 80,
       160, 40, 'Play Again', 0x4caf50,
-      () => this.scene.restart({ difficulty: this.difficultyKey })
+      () => this.scene.restart({ difficulty: this.difficultyKey, mapId: this.mapId }),
     );
     restartBtn.setDepth(101);
   }
@@ -690,7 +648,7 @@ export class GameScene extends Phaser.Scene {
     message: string,
     color: string,
     fontSize: string = '14px',
-    duration: number = 1200
+    duration: number = 1200,
   ): void {
     const text = this.add.text(x, y, message, {
       fontSize,
