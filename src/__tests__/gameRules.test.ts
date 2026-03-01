@@ -7,7 +7,9 @@
  * and should catch balance regressions when gameConfig.ts is edited.
  */
 import { describe, it, expect } from 'vitest';
-import { TOWER_DEFS, ENEMY_DEFS, WAVE_DEFS, PATH_WAYPOINTS } from '@/config/gameConfig';
+import { TOWER_DEFS, ENEMY_DEFS, WAVE_DEFS } from '@/config/gameConfig';
+import { MAP_DEFS } from '@/config/maps';
+import { findPath } from '@/systems/Pathfinder';
 import { calculateDamage, distance, tileToPixel, pixelToTile } from '@/utils/helpers';
 
 // ─── Damage pipeline ──────────────────────────────────────────────────────────
@@ -118,38 +120,53 @@ describe('Damage pipeline', () => {
 // ─── Path coherence ───────────────────────────────────────────────────────────
 
 describe('Path coherence', () => {
-  it('consecutive waypoints move orthogonally (share x or y axis)', () => {
-    for (let i = 0; i < PATH_WAYPOINTS.length - 1; i++) {
-      const a = PATH_WAYPOINTS[i];
-      const b = PATH_WAYPOINTS[i + 1];
-      const sharesAxis = a.x === b.x || a.y === b.y;
-      expect(sharesAxis).toBe(true);
+  // Run coherence checks against the computed path for every map so that a
+  // bad grid edit is caught immediately by the test suite.
+  const mapEntries = Object.entries(MAP_DEFS);
+
+  it('consecutive waypoints share an axis (orthogonal movement)', () => {
+    for (const [, map] of mapEntries) {
+      const waypoints = findPath(map.grid, map.start, map.end);
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const a = waypoints[i];
+        const b = waypoints[i + 1];
+        expect(a.x === b.x || a.y === b.y).toBe(true);
+      }
     }
   });
 
   it('every waypoint pixel center round-trips through pixelToTile', () => {
-    for (const wp of PATH_WAYPOINTS) {
-      const pixel = tileToPixel(wp.x, wp.y);
-      expect(pixelToTile(pixel.x, pixel.y)).toEqual({ x: wp.x, y: wp.y });
+    for (const [, map] of mapEntries) {
+      const waypoints = findPath(map.grid, map.start, map.end);
+      for (const wp of waypoints) {
+        const pixel = tileToPixel(wp.x, wp.y);
+        expect(pixelToTile(pixel.x, pixel.y)).toEqual({ x: wp.x, y: wp.y });
+      }
     }
   });
 
   it('distance between consecutive waypoints is positive', () => {
-    for (let i = 0; i < PATH_WAYPOINTS.length - 1; i++) {
-      const a = tileToPixel(PATH_WAYPOINTS[i].x, PATH_WAYPOINTS[i].y);
-      const b = tileToPixel(PATH_WAYPOINTS[i + 1].x, PATH_WAYPOINTS[i + 1].y);
-      expect(distance(a.x, a.y, b.x, b.y)).toBeGreaterThan(0);
+    for (const [, map] of mapEntries) {
+      const waypoints = findPath(map.grid, map.start, map.end);
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const a = tileToPixel(waypoints[i].x, waypoints[i].y);
+        const b = tileToPixel(waypoints[i + 1].x, waypoints[i + 1].y);
+        expect(distance(a.x, a.y, b.x, b.y)).toBeGreaterThan(0);
+      }
     }
   });
 
-  it('total path length is a meaningful traversal distance (> 500px)', () => {
-    let total = 0;
-    for (let i = 0; i < PATH_WAYPOINTS.length - 1; i++) {
-      const a = tileToPixel(PATH_WAYPOINTS[i].x, PATH_WAYPOINTS[i].y);
-      const b = tileToPixel(PATH_WAYPOINTS[i + 1].x, PATH_WAYPOINTS[i + 1].y);
-      total += distance(a.x, a.y, b.x, b.y);
+  it('total path length exceeds 500px on every map', () => {
+    for (const [, map] of mapEntries) {
+      const waypoints = findPath(map.grid, map.start, map.end);
+      let total = 0;
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const a = tileToPixel(waypoints[i].x, waypoints[i].y);
+        const b = tileToPixel(waypoints[i + 1].x, waypoints[i + 1].y);
+        total += distance(a.x, a.y, b.x, b.y);
+      }
+      expect(total).toBeGreaterThan(500);
     }
-    expect(total).toBeGreaterThan(500);
   });
 });
 
