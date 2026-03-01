@@ -168,6 +168,21 @@ export class Tower {
     );
   }
 
+  startSellAnimation(onComplete: () => void): void {
+    this.turretLine.setVisible(false);
+    this.rangeCircle.setVisible(false);
+    this.levelIndicators.forEach((d) => d.setVisible(false));
+    this.scene.tweens.add({
+      targets: this.sprite,
+      scaleX: 0,
+      scaleY: 0,
+      alpha: 0,
+      duration: 150,
+      ease: 'Back.easeIn',
+      onComplete,
+    });
+  }
+
   showRange(): void {
     this.rangeCircle.setVisible(true);
   }

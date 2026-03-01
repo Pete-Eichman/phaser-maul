@@ -4,6 +4,7 @@ import {
   COLORS, STARTING_GOLD, STARTING_LIVES,
   TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
+  WAVE_DEFS,
 } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID, MapDef } from '@/config/maps';
 import { findPath } from '@/systems/Pathfinder';
@@ -50,6 +51,7 @@ export class GameScene extends Phaser.Scene {
   private waveText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
   private infoPanelText!: Phaser.GameObjects.Text;
+  private infoPanelGraphics!: Phaser.GameObjects.Graphics;
   private towerButtons: Phaser.GameObjects.Container[] = [];
   private startWaveButton!: Phaser.GameObjects.Container;
   private upgradeButton: Phaser.GameObjects.Container | null = null;
@@ -106,6 +108,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.createUI();
+    this.showWavePreview();
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.onPointerMove(pointer);
@@ -136,8 +139,17 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.alive) {
         if (enemy.reachedEnd) {
           this.lives--;
+          this.flashVignette();
           this.waveManager.onEnemyReachedEnd();
-        } else {
+          enemy.destroy();
+          this.enemies.splice(i, 1);
+          if (this.lives <= 0) {
+            this.endGame(false);
+            return;
+          }
+        } else if (!enemy.deathAnimationStarted) {
+          // First frame the enemy is dead — process rewards and kick off animation.
+          // The enemy stays in the array until the tween finishes (dying=false).
           this.gold += enemy.reward;
           this.waveManager.onEnemyDied();
 
@@ -154,15 +166,14 @@ export class GameScene extends Phaser.Scene {
               }
             }
           }
-        }
 
-        enemy.destroy();
-        this.enemies.splice(i, 1);
-
-        if (this.lives <= 0) {
-          this.endGame(false);
-          return;
+          enemy.startDeathAnimation();
+        } else if (!enemy.dying) {
+          // Animation finished — clean up.
+          enemy.destroy();
+          this.enemies.splice(i, 1);
         }
+        // else: tween still running, leave in array
       }
     }
 
@@ -342,6 +353,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.infoPanelText.setDepth(52);
 
+    this.infoPanelGraphics = this.add.graphics();
+    this.infoPanelGraphics.setDepth(53);
+
     const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 155;
     towerIds.forEach((id, i) => {
@@ -444,6 +458,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showInfoPanel(def: TowerDef): void {
+    this.infoPanelGraphics.clear();
     const stats = def.levels[0];
     const isPoisonAura = def.id === 'poison';
 
@@ -462,8 +477,44 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private showWavePreview(): void {
+    this.infoPanelGraphics.clear();
+
+    const nextWaveIdx = this.waveManager.currentWave;
+    if (nextWaveIdx >= WAVE_DEFS.length) {
+      this.infoPanelText.setText('');
+      return;
+    }
+
+    const waveDef = WAVE_DEFS[nextWaveIdx];
+    const totalEnemies = waveDef.groups.reduce((sum, g) => sum + g.count, 0);
+    const uiY = MAP_ROWS * TILE_SIZE;
+    // Approximate line height for 11px font + 3px lineSpacing
+    const lineH = 16;
+    const circleX = INFO_PANEL_X + 11;
+    const firstGroupY = uiY + 56 + lineH; // one line below the header
+
+    const textLines = [`Wave ${nextWaveIdx + 1}  ·  ${totalEnemies} enemies`];
+
+    waveDef.groups.forEach((group, i) => {
+      const enemyDef = ENEMY_DEFS[group.enemyType];
+      if (!enemyDef) return;
+      const circleY = firstGroupY + i * lineH + Math.floor(lineH / 2) - 2;
+      this.infoPanelGraphics.fillStyle(enemyDef.color, 1);
+      this.infoPanelGraphics.fillCircle(circleX, circleY, 4);
+      textLines.push(`      ×${group.count}  ${enemyDef.name}`);
+    });
+
+    this.infoPanelText.setText(textLines.join('\n'));
+  }
+
   private clearInfoPanel(): void {
-    this.infoPanelText.setText('');
+    if (!this.waveManager.waveInProgress && !this.waveManager.allWavesComplete) {
+      this.showWavePreview();
+    } else {
+      this.infoPanelText.setText('');
+      this.infoPanelGraphics.clear();
+    }
   }
 
   private createButton(
@@ -598,8 +649,8 @@ export class GameScene extends Phaser.Scene {
         this.gold += sellValue;
         const idx = this.towers.indexOf(tower);
         if (idx !== -1) this.towers.splice(idx, 1);
-        tower.destroy();
         this.clearTowerSelection();
+        tower.startSellAnimation(() => tower.destroy());
       },
     );
   }
@@ -677,6 +728,16 @@ export class GameScene extends Phaser.Scene {
 
     this.towers.push(tower);
 
+    // Pop-in tween — starts small and eases to full size with a slight overshoot
+    tower.sprite.setScale(0.4);
+    this.tweens.add({
+      targets: tower.sprite,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 150,
+      ease: 'Back.easeOut',
+    });
+
     this.showFloatingText(
       center.x, center.y - 20,
       `-${this.selectedTowerDef.cost}g`,
@@ -691,7 +752,34 @@ export class GameScene extends Phaser.Scene {
   private startWave(): void {
     if (this.waveManager.waveInProgress) return;
     if (this.waveManager.allWavesComplete) return;
+    const waveNumber = this.waveManager.currentWave + 1;
     this.waveManager.startNextWave();
+    this.showWaveBanner(waveNumber);
+    this.infoPanelText.setText('');
+    this.infoPanelGraphics.clear();
+  }
+
+  private showWaveBanner(waveNumber: number): void {
+    const mapH = MAP_ROWS * TILE_SIZE;
+    const banner = this.add.text(GAME_WIDTH / 2, mapH / 2, `Wave ${waveNumber}`, {
+      fontSize: '52px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
+    });
+    banner.setOrigin(0.5);
+    banner.setDepth(100);
+    banner.setAlpha(0);
+    this.tweens.add({
+      targets: banner,
+      alpha: 1,
+      duration: 200,
+      ease: 'Power2',
+      yoyo: true,
+      hold: 600,
+      onComplete: () => banner.destroy(),
+    });
   }
 
   private onWaveComplete(reward: number): void {
@@ -701,6 +789,7 @@ export class GameScene extends Phaser.Scene {
       `Wave Complete! +${reward}g`,
       COLORS.ui.gold,
     );
+    this.showWavePreview();
   }
 
   // ============================================================
@@ -718,15 +807,29 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showEndScreen(message: string, color: string): void {
+    const mapH = MAP_ROWS * TILE_SIZE;
+
+    // Fade in from black — the overlay and text appear to emerge from darkness
+    const blackout = this.add.rectangle(GAME_WIDTH / 2, mapH / 2, GAME_WIDTH, mapH, 0x000000);
+    blackout.setDepth(99);
+    this.tweens.add({
+      targets: blackout,
+      alpha: 0,
+      duration: 600,
+      delay: 100,
+      ease: 'Power2',
+      onComplete: () => blackout.destroy(),
+    });
+
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2,
-      GAME_WIDTH, MAP_ROWS * TILE_SIZE,
+      GAME_WIDTH / 2, mapH / 2,
+      GAME_WIDTH, mapH,
       0x000000, 0.6,
     );
     overlay.setDepth(100);
 
     const text = this.add.text(
-      GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 - 20,
+      GAME_WIDTH / 2, mapH / 2 - 20,
       message,
       { fontSize: '48px', color, fontStyle: 'bold' },
     );
@@ -734,7 +837,7 @@ export class GameScene extends Phaser.Scene {
     text.setDepth(101);
 
     const subText = this.add.text(
-      GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 + 30,
+      GAME_WIDTH / 2, mapH / 2 + 30,
       `Waves Survived: ${this.waveManager.currentWave} / ${this.waveManager.getTotalWaves()}`,
       { fontSize: '18px', color: '#cccccc' },
     );
@@ -742,7 +845,7 @@ export class GameScene extends Phaser.Scene {
     subText.setDepth(101);
 
     const restartBtn = this.createButton(
-      GAME_WIDTH / 2, (MAP_ROWS * TILE_SIZE) / 2 + 80,
+      GAME_WIDTH / 2, mapH / 2 + 80,
       160, 40, 'Play Again', 0x4caf50,
       () => this.scene.restart({ difficulty: this.difficultyKey, mapId: this.mapId }),
     );
@@ -752,6 +855,19 @@ export class GameScene extends Phaser.Scene {
   // ============================================================
   // VISUAL FEEDBACK
   // ============================================================
+
+  private flashVignette(): void {
+    const mapH = MAP_ROWS * TILE_SIZE;
+    const vignette = this.add.rectangle(GAME_WIDTH / 2, mapH / 2, GAME_WIDTH, mapH, 0xff0000, 0.28);
+    vignette.setDepth(99);
+    this.tweens.add({
+      targets: vignette,
+      alpha: 0,
+      duration: 350,
+      ease: 'Power2',
+      onComplete: () => vignette.destroy(),
+    });
+  }
 
   private showFloatingText(
     x: number,
