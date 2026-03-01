@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   TOWER_DEFS, ENEMY_DEFS, WAVE_DEFS,
-  MAP_DATA, MAP_ROWS, MAP_COLS, PATH_WAYPOINTS,
+  MAP_ROWS, MAP_COLS,
   DIFFICULTY_SETTINGS,
 } from '@/config/gameConfig';
+import { MAP_DEFS } from '@/config/maps';
+import { findPath } from '@/systems/Pathfinder';
 
 // ─── Tower definitions ────────────────────────────────────────────────────────
 
@@ -157,65 +159,111 @@ describe('ENEMY_DEFS', () => {
   });
 });
 
-// ─── MAP_DATA ─────────────────────────────────────────────────────────────────
+// ─── Map definitions ──────────────────────────────────────────────────────────
 
-describe('MAP_DATA', () => {
-  it('has exactly MAP_ROWS rows', () => {
-    expect(MAP_DATA).toHaveLength(MAP_ROWS);
+describe('MAP_DEFS', () => {
+  const maps = Object.entries(MAP_DEFS);
+
+  it('defines exactly 3 maps', () => {
+    expect(maps).toHaveLength(3);
   });
 
-  it('every row has exactly MAP_COLS columns', () => {
-    for (const row of MAP_DATA) {
-      expect(row).toHaveLength(MAP_COLS);
+  it('every map id matches its key', () => {
+    for (const [key, map] of maps) {
+      expect(map.id).toBe(key);
     }
   });
 
-  it('all tile values are 0 (grass), 1 (path), or 2 (zone)', () => {
-    for (const row of MAP_DATA) {
-      for (const cell of row) {
-        expect([0, 1, 2]).toContain(cell);
+  it('every map grid has exactly MAP_ROWS rows', () => {
+    for (const [, map] of maps) {
+      expect(map.grid).toHaveLength(MAP_ROWS);
+    }
+  });
+
+  it('every map grid row has exactly MAP_COLS columns', () => {
+    for (const [, map] of maps) {
+      for (const row of map.grid) {
+        expect(row).toHaveLength(MAP_COLS);
       }
     }
   });
 
-  it('contains at least one buildable grass tile', () => {
-    const hasBuildable = MAP_DATA.some(row => row.includes(0));
-    expect(hasBuildable).toBe(true);
-  });
-
-  it('contains at least one path tile', () => {
-    const hasPath = MAP_DATA.some(row => row.includes(1));
-    expect(hasPath).toBe(true);
-  });
-});
-
-// ─── PATH_WAYPOINTS ───────────────────────────────────────────────────────────
-
-describe('PATH_WAYPOINTS', () => {
-  it('has at least 2 waypoints', () => {
-    expect(PATH_WAYPOINTS.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('all waypoints are within map bounds', () => {
-    for (const wp of PATH_WAYPOINTS) {
-      expect(wp.x).toBeGreaterThanOrEqual(0);
-      expect(wp.x).toBeLessThan(MAP_COLS);
-      expect(wp.y).toBeGreaterThanOrEqual(0);
-      expect(wp.y).toBeLessThan(MAP_ROWS);
+  it('all tile values are 0, 1, or 2', () => {
+    for (const [, map] of maps) {
+      for (const row of map.grid) {
+        for (const cell of row) {
+          expect([0, 1, 2]).toContain(cell);
+        }
+      }
     }
   });
 
-  it('waypoint tiles are path or zone tiles, not buildable grass', () => {
-    for (const wp of PATH_WAYPOINTS) {
-      expect(MAP_DATA[wp.y][wp.x]).toBeGreaterThan(0);
+  it('every map has at least one buildable tile', () => {
+    for (const [, map] of maps) {
+      expect(map.grid.some(row => row.includes(0))).toBe(true);
     }
   });
 
-  it('no two consecutive waypoints are identical', () => {
-    for (let i = 0; i < PATH_WAYPOINTS.length - 1; i++) {
-      const a = PATH_WAYPOINTS[i];
-      const b = PATH_WAYPOINTS[i + 1];
-      expect(a.x === b.x && a.y === b.y).toBe(false);
+  it('every map has at least one path tile', () => {
+    for (const [, map] of maps) {
+      expect(map.grid.some(row => row.includes(1))).toBe(true);
+    }
+  });
+
+  it('start and end tiles are within map bounds', () => {
+    for (const [, map] of maps) {
+      expect(map.start.row).toBeGreaterThanOrEqual(0);
+      expect(map.start.row).toBeLessThan(MAP_ROWS);
+      expect(map.start.col).toBeGreaterThanOrEqual(0);
+      expect(map.start.col).toBeLessThan(MAP_COLS);
+      expect(map.end.row).toBeGreaterThanOrEqual(0);
+      expect(map.end.row).toBeLessThan(MAP_ROWS);
+      expect(map.end.col).toBeGreaterThanOrEqual(0);
+      expect(map.end.col).toBeLessThan(MAP_COLS);
+    }
+  });
+
+  it('start and end tiles are walkable (non-zero)', () => {
+    for (const [, map] of maps) {
+      expect(map.grid[map.start.row][map.start.col]).toBeGreaterThan(0);
+      expect(map.grid[map.end.row][map.end.col]).toBeGreaterThan(0);
+    }
+  });
+
+  it('A* finds a valid path for every map', () => {
+    for (const [, map] of maps) {
+      const path = findPath(map.grid, map.start, map.end);
+      expect(path.length).toBeGreaterThanOrEqual(2);
+      expect(path[0]).toEqual({ x: map.start.col, y: map.start.row });
+      expect(path[path.length - 1]).toEqual({ x: map.end.col, y: map.end.row });
+    }
+  });
+
+  it('computed waypoints are within map bounds', () => {
+    for (const [, map] of maps) {
+      const path = findPath(map.grid, map.start, map.end);
+      for (const wp of path) {
+        expect(wp.x).toBeGreaterThanOrEqual(0);
+        expect(wp.x).toBeLessThan(MAP_COLS);
+        expect(wp.y).toBeGreaterThanOrEqual(0);
+        expect(wp.y).toBeLessThan(MAP_ROWS);
+      }
+    }
+  });
+
+  it('computed waypoints land only on walkable tiles', () => {
+    for (const [, map] of maps) {
+      const path = findPath(map.grid, map.start, map.end);
+      for (const wp of path) {
+        expect(map.grid[wp.y][wp.x]).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('map difficulty values are valid', () => {
+    const valid = ['easy', 'medium', 'hard'];
+    for (const [, map] of maps) {
+      expect(valid).toContain(map.difficulty);
     }
   });
 });
@@ -291,19 +339,19 @@ describe('DIFFICULTY_SETTINGS', () => {
 
   it('easy gives more starting resources than hard', () => {
     expect(DIFFICULTY_SETTINGS.easy.startingGoldMult).toBeGreaterThan(
-      DIFFICULTY_SETTINGS.hard.startingGoldMult
+      DIFFICULTY_SETTINGS.hard.startingGoldMult,
     );
     expect(DIFFICULTY_SETTINGS.easy.startingLivesMult).toBeGreaterThan(
-      DIFFICULTY_SETTINGS.hard.startingLivesMult
+      DIFFICULTY_SETTINGS.hard.startingLivesMult,
     );
   });
 
   it('hard has stronger enemies than easy', () => {
     expect(DIFFICULTY_SETTINGS.hard.enemyHpMult).toBeGreaterThan(
-      DIFFICULTY_SETTINGS.easy.enemyHpMult
+      DIFFICULTY_SETTINGS.easy.enemyHpMult,
     );
     expect(DIFFICULTY_SETTINGS.hard.enemySpeedMult).toBeGreaterThan(
-      DIFFICULTY_SETTINGS.easy.enemySpeedMult
+      DIFFICULTY_SETTINGS.easy.enemySpeedMult,
     );
   });
 
