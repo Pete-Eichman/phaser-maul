@@ -32,6 +32,8 @@ export class GameScene extends Phaser.Scene {
   // Active map data (set in init, used throughout)
   private mapDef!: MapDef;
   private waypoints: Waypoint[] = [];
+  private pathGrid: number[][] = [];
+  private isOpenField: boolean = false;
 
   // Entities
   private towers: Tower[] = [];
@@ -69,7 +71,14 @@ export class GameScene extends Phaser.Scene {
 
     // Load map definition and compute waypoints via A*
     this.mapDef = MAP_DEFS[this.mapId] ?? MAP_DEFS[DEFAULT_MAP_ID];
-    const rawWaypoints = findPath(this.mapDef.grid, this.mapDef.start, this.mapDef.end);
+    this.isOpenField = this.mapDef.openField ?? false;
+    if (this.isOpenField) {
+      this.pathGrid = this.mapDef.grid.map(row =>
+        row.map(tile => tile === 0 ? 1 : tile)
+      );
+    }
+    const gridForPath = this.isOpenField ? this.pathGrid : this.mapDef.grid;
+    const rawWaypoints = findPath(gridForPath, this.mapDef.start, this.mapDef.end);
     this.waypoints = rawWaypoints;
 
     // Reset state so restarts start clean
@@ -124,8 +133,8 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-      const towerKeys = ['1', '2', '3', '4', '5', '6', '7'];
-      const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
+      const towerKeys = ['1', '2', '3', '4', '5', '6', '7', '8'];
+      const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall'];
       const idx = towerKeys.indexOf(event.key);
       if (idx !== -1) this.selectTowerDef(towerIds[idx]);
       if (event.key === 'Escape') this.deselectAll();
@@ -396,11 +405,11 @@ export class GameScene extends Phaser.Scene {
     this.infoPanelGraphics = this.add.graphics();
     this.infoPanelGraphics.setDepth(53);
 
-    const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
-    const startX = 155;
+    const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall'];
+    const startX = 82;
     towerIds.forEach((id, i) => {
       const def = TOWER_DEFS[id];
-      const btnX = startX + i * 90;
+      const btnX = startX + i * 82;
       const btn = this.createTowerButton(btnX, uiY + 92, def, `${i + 1}`);
       this.towerButtons.push(btn);
     });
@@ -460,6 +469,10 @@ export class GameScene extends Phaser.Scene {
         icon.fillCircle(0, iconY - 13, 4);
         icon.fillCircle(11, iconY + 7, 3);
         icon.fillCircle(-11, iconY + 7, 3);
+        break;
+      case 'wall':
+        icon.fillStyle(def.color, 1);
+        icon.fillRect(-9, iconY - 9, 18, 18);
         break;
     }
 
@@ -604,11 +617,14 @@ export class GameScene extends Phaser.Scene {
       ` / ${this.waveManager.getTotalWaves()}`,
     );
 
+    const idleText = this.isOpenField
+      ? 'Build a maze — enemies pathfind through your towers  (1–8)'
+      : 'Select a tower (1–8) then click the map to place it';
     const status = this.selectedTowerDef
       ? `Placing: ${this.selectedTowerDef.name} (${this.selectedTowerDef.cost}g) — Click to place, Esc to cancel`
       : this.waveManager.waveInProgress
         ? `Wave in progress — ${this.waveManager.getWaveProgress()}`
-        : 'Select a tower (1–7) then click the map to place it';
+        : idleText;
     this.statusText.setText(status);
   }
 
@@ -698,8 +714,8 @@ export class GameScene extends Phaser.Scene {
     this.towerNameText.setOrigin(0.5, 0.5);
     this.towerNameText.setDepth(52);
 
-    // Targeting mode toggle (not shown for poison — it always hits all in range)
-    if (tower.def.id !== 'poison') {
+    // Targeting mode toggle (not shown for poison or wall — neither fires projectiles)
+    if (tower.def.id !== 'poison' && tower.def.id !== 'wall') {
       const modeLabel = tower.targetMode.charAt(0).toUpperCase() + tower.targetMode.slice(1);
       this.targetModeButton = this.createButton(
         x, uiY + 75, 130, 20,
@@ -739,6 +755,15 @@ export class GameScene extends Phaser.Scene {
         this.gold += sellValue;
         const idx = this.towers.indexOf(tower);
         if (idx !== -1) this.towers.splice(idx, 1);
+        if (this.isOpenField) {
+          this.pathGrid[tower.tileY][tower.tileX] = 1;
+          const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
+          this.waypoints = newWaypoints;
+          this.waveManager.updateWaypoints(newWaypoints);
+          for (const enemy of this.enemies) {
+            if (enemy.alive) enemy.repath(newWaypoints);
+          }
+        }
         this.clearTowerSelection();
         tower.startSellAnimation(() => tower.destroy());
       },
@@ -787,7 +812,14 @@ export class GameScene extends Phaser.Scene {
   private canBuildAt(tileX: number, tileY: number): boolean {
     if (tileY < 0 || tileY >= MAP_ROWS || tileX < 0 || tileX >= MAP_COLS) return false;
     if (this.mapDef.grid[tileY][tileX] !== 0) return false;
-    return !this.towers.some((t) => t.tileX === tileX && t.tileY === tileY);
+    if (this.towers.some((t) => t.tileX === tileX && t.tileY === tileY)) return false;
+    if (this.isOpenField) {
+      this.pathGrid[tileY][tileX] = 0;
+      const testPath = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
+      this.pathGrid[tileY][tileX] = 1;
+      if (testPath.length === 0) return false;
+    }
+    return true;
   }
 
   private tryPlaceTower(pointer: Phaser.Input.Pointer): void {
@@ -810,7 +842,7 @@ export class GameScene extends Phaser.Scene {
 
     tower.sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.rightButtonDown()) {
-        if (this.selectedTower === tower) {
+        if (this.selectedTower === tower && tower.def.id !== 'poison' && tower.def.id !== 'wall') {
           tower.cycleTargetMode();
           this.clearTowerInfo();
           this.showTowerInfo(tower);
@@ -826,6 +858,16 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.towers.push(tower);
+
+    if (this.isOpenField) {
+      this.pathGrid[tile.y][tile.x] = 0;
+      const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
+      this.waypoints = newWaypoints;
+      this.waveManager.updateWaypoints(newWaypoints);
+      for (const enemy of this.enemies) {
+        if (enemy.alive) enemy.repath(newWaypoints);
+      }
+    }
 
     // Pop-in tween — starts small and eases to full size with a slight overshoot
     tower.sprite.setScale(0.4);

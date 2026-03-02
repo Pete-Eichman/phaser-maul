@@ -16,6 +16,7 @@ export interface MapDef {
   name: string;
   description: string;
   difficulty: 'easy' | 'medium' | 'hard';
+  openField?: boolean;
   grid: number[][];
   start: { row: number; col: number };
   end: { row: number; col: number };
@@ -110,6 +111,31 @@ export const MAP_DEFS: Record<string, MapDef> = {
     ],
     start: { row: 6, col: 0 },
     end:   { row: 10, col: 19 },
+  },
+
+  wintermaul: {
+    id: 'wintermaul',
+    name: 'Wintermaul',
+    description: 'Build the maze. Enemies find any path through.',
+    difficulty: 'easy',
+    openField: true,
+    grid: [
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+      [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    ],
+    start: { row: 6, col: 0 },
+    end:   { row: 6, col: 19 },
   },
 };
 

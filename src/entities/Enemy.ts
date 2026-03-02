@@ -225,6 +225,33 @@ export class Enemy {
     this.wasBurning = isBurning;
   }
 
+  repath(newWaypoints: Waypoint[]): void {
+    this.waypoints = newWaypoints;
+
+    this.cumulativeLengths = [0];
+    for (let i = 0; i < newWaypoints.length - 1; i++) {
+      const from = tileToPixel(newWaypoints[i].x, newWaypoints[i].y);
+      const to = tileToPixel(newWaypoints[i + 1].x, newWaypoints[i + 1].y);
+      this.cumulativeLengths.push(
+        this.cumulativeLengths[i] + distance(from.x, from.y, to.x, to.y),
+      );
+    }
+
+    let closestIdx = 0;
+    let closestDist = Infinity;
+    for (let i = 0; i < newWaypoints.length; i++) {
+      const wp = tileToPixel(newWaypoints[i].x, newWaypoints[i].y);
+      const d = distance(this.sprite.x, this.sprite.y, wp.x, wp.y);
+      if (d < closestDist) {
+        closestDist = d;
+        closestIdx = i;
+      }
+    }
+
+    this.waypointIndex = Math.min(closestIdx + 1, newWaypoints.length - 1);
+    this.updateTarget();
+  }
+
   applyEffect(effect: StatusEffect): void {
     if (effect.type === 'slow') {
       const existing = this.statusEffects.find((e) => e.type === 'slow');

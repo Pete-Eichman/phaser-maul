@@ -58,6 +58,13 @@ export class Tower {
     this.sprite.on('pointerover', () => this.rangeCircle.setVisible(true));
     this.sprite.on('pointerout', () => this.rangeCircle.setVisible(false));
 
+    if (this.def.id === 'wall') {
+      this.turretLine.setVisible(false);
+      this.rangeCircle.setVisible(false);
+      this.sprite.removeListener('pointerover');
+      this.sprite.removeListener('pointerout');
+    }
+
     this.updateLevelIndicators();
   }
 
@@ -107,6 +114,8 @@ export class Tower {
   }
 
   update(delta: number, enemies: Enemy[]): Projectile | null {
+    if (this.def.id === 'wall') return null;
+
     this.fireCooldown -= delta;
 
     if (this.fireCooldown > 0) return null;

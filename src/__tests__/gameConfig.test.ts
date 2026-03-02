@@ -13,8 +13,8 @@ describe('TOWER_DEFS', () => {
   const towers = Object.entries(TOWER_DEFS);
   const validDamageTypes = ['physical', 'magic', 'fire', 'ice', 'lightning', 'poison'] as const;
 
-  it('defines exactly 7 tower types', () => {
-    expect(towers).toHaveLength(7);
+  it('defines exactly 8 tower types', () => {
+    expect(towers).toHaveLength(8);
   });
 
   it('every tower id matches its key in the record', () => {
@@ -23,8 +23,9 @@ describe('TOWER_DEFS', () => {
     }
   });
 
-  it('every tower has exactly 3 upgrade levels', () => {
+  it('combat towers have exactly 3 upgrade levels', () => {
     for (const [, def] of towers) {
+      if (def.id === 'wall') continue;
       expect(def.levels).toHaveLength(3);
     }
   });
@@ -35,22 +36,25 @@ describe('TOWER_DEFS', () => {
     }
   });
 
-  it('upgrade levels 1 and 2 have positive costs', () => {
+  it('upgrade levels 1 and 2 have positive costs for combat towers', () => {
     for (const [, def] of towers) {
+      if (def.id === 'wall') continue;
       expect(def.levels[1].upgradeCost).toBeGreaterThan(0);
       expect(def.levels[2].upgradeCost).toBeGreaterThan(0);
     }
   });
 
-  it('damage is non-decreasing across upgrade levels', () => {
+  it('damage is non-decreasing across upgrade levels for combat towers', () => {
     for (const [, def] of towers) {
+      if (def.id === 'wall') continue;
       expect(def.levels[1].damage).toBeGreaterThanOrEqual(def.levels[0].damage);
       expect(def.levels[2].damage).toBeGreaterThanOrEqual(def.levels[1].damage);
     }
   });
 
-  it('range is non-decreasing across upgrade levels', () => {
+  it('range is non-decreasing across upgrade levels for combat towers', () => {
     for (const [, def] of towers) {
+      if (def.id === 'wall') continue;
       expect(def.levels[1].range).toBeGreaterThanOrEqual(def.levels[0].range);
       expect(def.levels[2].range).toBeGreaterThanOrEqual(def.levels[1].range);
     }
@@ -68,8 +72,9 @@ describe('TOWER_DEFS', () => {
     }
   });
 
-  it('all towers have positive fire rate and range on every level', () => {
+  it('all combat towers have positive fire rate and range on every level', () => {
     for (const [, def] of towers) {
+      if (def.id === 'wall') continue;
       for (const level of def.levels) {
         expect(level.fireRate).toBeGreaterThan(0);
         expect(level.range).toBeGreaterThan(0);
@@ -164,8 +169,8 @@ describe('ENEMY_DEFS', () => {
 describe('MAP_DEFS', () => {
   const maps = Object.entries(MAP_DEFS);
 
-  it('defines exactly 3 maps', () => {
-    expect(maps).toHaveLength(3);
+  it('defines exactly 4 maps', () => {
+    expect(maps).toHaveLength(4);
   });
 
   it('every map id matches its key', () => {
@@ -204,8 +209,9 @@ describe('MAP_DEFS', () => {
     }
   });
 
-  it('every map has at least one path tile', () => {
+  it('fixed-path maps have at least one path tile', () => {
     for (const [, map] of maps) {
+      if (map.openField) continue;
       expect(map.grid.some(row => row.includes(1))).toBe(true);
     }
   });
@@ -232,7 +238,10 @@ describe('MAP_DEFS', () => {
 
   it('A* finds a valid path for every map', () => {
     for (const [, map] of maps) {
-      const path = findPath(map.grid, map.start, map.end);
+      const grid = map.openField
+        ? map.grid.map(row => row.map(tile => tile === 0 ? 1 : tile))
+        : map.grid;
+      const path = findPath(grid, map.start, map.end);
       expect(path.length).toBeGreaterThanOrEqual(2);
       expect(path[0]).toEqual({ x: map.start.col, y: map.start.row });
       expect(path[path.length - 1]).toEqual({ x: map.end.col, y: map.end.row });
@@ -241,7 +250,10 @@ describe('MAP_DEFS', () => {
 
   it('computed waypoints are within map bounds', () => {
     for (const [, map] of maps) {
-      const path = findPath(map.grid, map.start, map.end);
+      const grid = map.openField
+        ? map.grid.map(row => row.map(tile => tile === 0 ? 1 : tile))
+        : map.grid;
+      const path = findPath(grid, map.start, map.end);
       for (const wp of path) {
         expect(wp.x).toBeGreaterThanOrEqual(0);
         expect(wp.x).toBeLessThan(MAP_COLS);
@@ -253,9 +265,12 @@ describe('MAP_DEFS', () => {
 
   it('computed waypoints land only on walkable tiles', () => {
     for (const [, map] of maps) {
-      const path = findPath(map.grid, map.start, map.end);
+      const grid = map.openField
+        ? map.grid.map(row => row.map(tile => tile === 0 ? 1 : tile))
+        : map.grid;
+      const path = findPath(grid, map.start, map.end);
       for (const wp of path) {
-        expect(map.grid[wp.y][wp.x]).toBeGreaterThan(0);
+        expect(grid[wp.y][wp.x]).toBeGreaterThan(0);
       }
     }
   });
