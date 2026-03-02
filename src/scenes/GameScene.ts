@@ -56,6 +56,8 @@ export class GameScene extends Phaser.Scene {
   private startWaveButton!: Phaser.GameObjects.Container;
   private upgradeButton: Phaser.GameObjects.Container | null = null;
   private sellButton: Phaser.GameObjects.Container | null = null;
+  private targetModeButton: Phaser.GameObjects.Container | null = null;
+  private towerNameText: Phaser.GameObjects.Text | null = null;
   private selectedTower: Tower | null = null;
 
   constructor() {
@@ -81,6 +83,8 @@ export class GameScene extends Phaser.Scene {
     this.selectedTower = null;
     this.upgradeButton = null;
     this.sellButton = null;
+    this.targetModeButton = null;
+    this.towerNameText = null;
     this.towerButtons = [];
   }
 
@@ -93,6 +97,7 @@ export class GameScene extends Phaser.Scene {
     this.spatialHash = new SpatialHash<Enemy>(TILE_SIZE * 2, (e) => ({ x: e.sprite.x, y: e.sprite.y }));
 
     this.drawMap();
+    this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.hoverGraphics = this.add.graphics();
     this.hoverGraphics.setDepth(20);
@@ -223,6 +228,9 @@ export class GameScene extends Phaser.Scene {
   private drawMap(): void {
     const grid = this.mapDef.grid;
 
+    const detailsG = this.add.graphics();
+    detailsG.setDepth(0.5);
+
     for (let row = 0; row < MAP_ROWS; row++) {
       for (let col = 0; col < MAP_COLS; col++) {
         const tile = grid[row][col];
@@ -248,33 +256,68 @@ export class GameScene extends Phaser.Scene {
         if (tile === 1) {
           rect.setStrokeStyle(1, COLORS.pathBorder, 0.4);
         }
+
+        // Subtle grass detail marks — deterministic from tile position
+        if (tile === 0) {
+          const seed = (row * 31 + col * 17) % 100;
+          if (seed >= 50) {
+            detailsG.fillStyle(0x1e3d28, 0.55);
+            const ox1 = (seed * 7) % (TILE_SIZE - 8) + 3;
+            const oy1 = (seed * 13) % (TILE_SIZE - 8) + 3;
+            detailsG.fillRect(x + ox1, y + oy1, (seed % 3) + 2, (seed % 2) + 2);
+            if (seed >= 75) {
+              const ox2 = (seed * 11) % (TILE_SIZE - 8) + 3;
+              const oy2 = (seed * 19) % (TILE_SIZE - 8) + 3;
+              detailsG.fillRect(x + ox2, y + oy2, (seed % 2) + 2, (seed % 3) + 2);
+            }
+          }
+        }
       }
     }
 
-    // Spawn and exit markers from computed waypoints
-    if (this.waypoints.length >= 2) {
-      const spawn = tileToPixel(this.waypoints[0].x, this.waypoints[0].y);
-      const exit = tileToPixel(
-        this.waypoints[this.waypoints.length - 1].x,
-        this.waypoints[this.waypoints.length - 1].y,
-      );
+    this.createMapIndicators();
+  }
 
-      const spawnLabel = this.add.text(spawn.x, spawn.y - 20, 'SPAWN', {
-        fontSize: '11px',
-        color: '#ffffff',
-        fontStyle: 'bold',
-      });
-      spawnLabel.setOrigin(0.5);
-      spawnLabel.setDepth(2);
+  private createMapIndicators(): void {
+    if (this.waypoints.length < 2) return;
 
-      const exitLabel = this.add.text(exit.x, exit.y + 20, 'EXIT', {
-        fontSize: '11px',
-        color: '#ff4444',
-        fontStyle: 'bold',
+    const spawnWp = this.waypoints[0];
+    const exitWp  = this.waypoints[this.waypoints.length - 1];
+
+    const spawnAngle = this.edgeAngle(spawnWp.x, spawnWp.y);
+    const exitAngle  = this.edgeAngle(exitWp.x,  exitWp.y);
+
+    const spawnPos = tileToPixel(spawnWp.x, spawnWp.y);
+    const exitPos  = tileToPixel(exitWp.x,  exitWp.y);
+
+    const makeIndicator = (cx: number, cy: number, angle: number, color: number): void => {
+      const g = this.add.graphics();
+      g.setDepth(2);
+      g.fillStyle(color, 0.9);
+      g.fillTriangle(13, 0, -5, -8, -5, 8);
+      g.setPosition(cx, cy);
+      g.setRotation(angle);
+      this.tweens.add({
+        targets: g,
+        scaleX: 1.2,
+        scaleY: 1.2,
+        duration: 750,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1,
       });
-      exitLabel.setOrigin(0.5);
-      exitLabel.setDepth(2);
-    }
+    };
+
+    makeIndicator(spawnPos.x, spawnPos.y, spawnAngle, 0x44ff88);
+    makeIndicator(exitPos.x,  exitPos.y,  exitAngle,  0xff5555);
+  }
+
+  // Returns the angle (radians) pointing inward from whichever map edge a tile sits on.
+  private edgeAngle(col: number, row: number): number {
+    if (col === 0)           return 0;          // left edge  → point right
+    if (col === MAP_COLS - 1) return Math.PI;   // right edge → point left
+    if (row === 0)           return Math.PI / 2; // top edge   → point down
+    return -Math.PI / 2;                         // bottom edge → point up
   }
 
   // ============================================================
@@ -423,21 +466,26 @@ export class GameScene extends Phaser.Scene {
         break;
     }
 
-    const nameText = this.add.text(0, 0, def.name, {
-      fontSize: '10px',
-      color: '#cccccc',
+    const label = def.name.replace(' Tower', '');
+    const nameText = this.add.text(0, 2, label, {
+      fontSize: '12px',
+      fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+      color: '#dddddd',
     });
     nameText.setOrigin(0.5);
 
-    const costText = this.add.text(0, 14, `${def.cost}g`, {
-      fontSize: '11px',
-      color: COLORS.ui.gold,
+    const costText = this.add.text(0, 17, `${def.cost}g`, {
+      fontSize: '12px',
       fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+      color: COLORS.ui.gold,
     });
     costText.setOrigin(0.5);
 
     const hotkeyText = this.add.text(30, -30, hotkey, {
-      fontSize: '10px',
+      fontSize: '11px',
+      fontFamily: 'Arial, sans-serif',
       color: '#666688',
     });
     hotkeyText.setOrigin(0.5);
@@ -568,6 +616,22 @@ export class GameScene extends Phaser.Scene {
   // INPUT HANDLING
   // ============================================================
 
+  private drawDashedCircle(
+    g: Phaser.GameObjects.Graphics,
+    cx: number, cy: number, radius: number,
+    color: number, alpha: number,
+  ): void {
+    const dashArc = Math.PI / 12;  // 15° dash
+    const gapArc  = Math.PI / 18;  // 10° gap
+    const step = dashArc + gapArc;
+    g.lineStyle(1, color, alpha);
+    for (let a = 0; a < Math.PI * 2; a += step) {
+      g.beginPath();
+      g.arc(cx, cy, radius, a, Math.min(a + dashArc, Math.PI * 2));
+      g.strokePath();
+    }
+  }
+
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     this.hoverGraphics.clear();
 
@@ -589,8 +653,9 @@ export class GameScene extends Phaser.Scene {
     if (canBuild && this.selectedTowerDef) {
       const center = tileToPixel(tile.x, tile.y);
       const range = this.selectedTowerDef.levels[0].range;
-      this.hoverGraphics.lineStyle(1, 0xffffff, 0.3);
-      this.hoverGraphics.strokeCircle(center.x, center.y, range);
+      this.hoverGraphics.fillStyle(0xffffff, 0.05);
+      this.hoverGraphics.fillCircle(center.x, center.y, range);
+      this.drawDashedCircle(this.hoverGraphics, center.x, center.y, range, 0xffffff, 0.45);
     }
   }
 
@@ -622,11 +687,38 @@ export class GameScene extends Phaser.Scene {
 
     const uiY = MAP_ROWS * TILE_SIZE;
     const x = GAME_WIDTH - 80;
+    const panelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
+
+    // Tower name header — identifies which tower is selected
+    const colorHex = `#${tower.def.color.toString(16).padStart(6, '0')}`;
+    this.towerNameText = this.add.text(panelCenterX, uiY + 58, tower.def.name, {
+      fontSize: '12px',
+      fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+      color: colorHex,
+    });
+    this.towerNameText.setOrigin(0.5, 0.5);
+    this.towerNameText.setDepth(52);
+
+    // Targeting mode toggle (not shown for poison — it always hits all in range)
+    if (tower.def.id !== 'poison') {
+      const modeLabel = tower.targetMode.charAt(0).toUpperCase() + tower.targetMode.slice(1);
+      this.targetModeButton = this.createButton(
+        x, uiY + 75, 130, 20,
+        `Target: ${modeLabel}`,
+        0x1a1a3a,
+        () => {
+          tower.cycleTargetMode();
+          this.clearTowerInfo();
+          this.showTowerInfo(tower);
+        },
+      );
+    }
 
     if (tower.canUpgrade()) {
       const cost = tower.getUpgradeCost();
       this.upgradeButton = this.createButton(
-        x, uiY + 68, 130, 30,
+        x, uiY + 98, 130, 24,
         `Upgrade (${cost}g)`,
         this.gold >= cost ? 0x2196f3 : 0x555555,
         () => {
@@ -642,7 +734,7 @@ export class GameScene extends Phaser.Scene {
 
     const sellValue = Math.floor(tower.def.cost * 0.6);
     this.sellButton = this.createButton(
-      x, uiY + 104, 130, 24,
+      x, uiY + 120, 130, 20,
       `Sell (${sellValue}g)`,
       0x666666,
       () => {
@@ -660,6 +752,10 @@ export class GameScene extends Phaser.Scene {
     this.upgradeButton = null;
     this.sellButton?.destroy();
     this.sellButton = null;
+    this.targetModeButton?.destroy();
+    this.targetModeButton = null;
+    this.towerNameText?.destroy();
+    this.towerNameText = null;
   }
 
   private clearTowerSelection(): void {
@@ -717,7 +813,14 @@ export class GameScene extends Phaser.Scene {
     );
 
     tower.sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (!this.selectedTowerDef) {
+      if (pointer.rightButtonDown()) {
+        if (this.selectedTower === tower) {
+          tower.cycleTargetMode();
+          this.clearTowerInfo();
+          this.showTowerInfo(tower);
+        }
+        pointer.event.stopPropagation();
+      } else if (!this.selectedTowerDef) {
         pointer.event.stopPropagation();
         this.clearTowerSelection();
         this.selectedTower = tower;
