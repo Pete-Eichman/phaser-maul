@@ -29,9 +29,12 @@ export class Enemy {
   public deathAnimationStarted: boolean = false;
   public def: EnemyDef;
   public waypointIndex: number = 0;
+  // Total pixel distance traveled along the path — used by tower targeting modes.
+  public pathProgress: number = 0;
 
   private scene: Phaser.Scene;
   private waypoints: Waypoint[];
+  private cumulativeLengths: number[] = [];
   private targetX: number = 0;
   private targetY: number = 0;
   private statusEffects: StatusEffect[] = [];
@@ -51,6 +54,15 @@ export class Enemy {
     this.scene = scene;
     this.def = def;
     this.waypoints = waypoints;
+
+    // Precompute cumulative pixel distances between waypoints for pathProgress tracking.
+    this.cumulativeLengths = [0];
+    for (let i = 0; i < waypoints.length - 1; i++) {
+      const from = tileToPixel(waypoints[i].x, waypoints[i].y);
+      const to = tileToPixel(waypoints[i + 1].x, waypoints[i + 1].y);
+      this.cumulativeLengths.push(this.cumulativeLengths[i] + distance(from.x, from.y, to.x, to.y));
+    }
+
     this.health = def.health;
     this.maxHealth = def.health;
     this.speed = def.speed;
@@ -142,6 +154,15 @@ export class Enemy {
       this.moveAngle = angle;
       this.sprite.x += Math.cos(angle) * moveDistance;
       this.sprite.y += Math.sin(angle) * moveDistance;
+    }
+
+    if (this.waypointIndex > 0 && this.waypointIndex <= this.waypoints.length) {
+      const prev = tileToPixel(
+        this.waypoints[this.waypointIndex - 1].x,
+        this.waypoints[this.waypointIndex - 1].y,
+      );
+      this.pathProgress = (this.cumulativeLengths[this.waypointIndex - 1] ?? 0)
+        + distance(prev.x, prev.y, this.sprite.x, this.sprite.y);
     }
 
     this.drawWedge();
