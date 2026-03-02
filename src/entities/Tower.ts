@@ -155,7 +155,6 @@ export class Tower {
         });
     }
 
-    // Fire!
     this.fireCooldown = 1000 / stats.fireRate;
 
     // Point turret at target

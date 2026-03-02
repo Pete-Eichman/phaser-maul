@@ -1,9 +1,8 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT, COLORS, DIFFICULTY_SETTINGS, DifficultyKey } from '@/config/gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT, UI_HEIGHT, COLORS, DIFFICULTY_SETTINGS, DifficultyKey } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID } from '@/config/maps';
 import { loadLeaderboard } from '@/utils/leaderboard';
 
-const UI_HEIGHT = 136;
 const CANVAS_HEIGHT = GAME_HEIGHT + UI_HEIGHT;
 
 export class MenuScene extends Phaser.Scene {
@@ -12,6 +11,7 @@ export class MenuScene extends Phaser.Scene {
 
   private difficultyButtons: { key: DifficultyKey; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
   private mapButtons: { id: string; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
+  private diffDescText: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -142,7 +142,7 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5);
 
       const diffLabel = map.difficulty.charAt(0).toUpperCase() + map.difficulty.slice(1);
-      const diffText = this.add.text(x, y + 10, diffLabel, {
+      this.add.text(x, y + 10, diffLabel, {
         fontSize: '11px',
         color: isSelected ? '#cccccc' : '#777777',
         fontFamily: 'Arial, sans-serif',
@@ -156,14 +156,16 @@ export class MenuScene extends Phaser.Scene {
       });
 
       bg.on('pointerover', () => {
-        if (map.id !== this.selectedMapId) bg.setFillStyle(color + 0x111111);
+        if (map.id !== this.selectedMapId) {
+          const r = Math.min(0xff, ((color >> 16) & 0xff) + 0x11);
+          const g = Math.min(0xff, ((color >>  8) & 0xff) + 0x11);
+          const b = Math.min(0xff, ( color        & 0xff) + 0x11);
+          bg.setFillStyle((r << 16) | (g << 8) | b);
+        }
       });
       bg.on('pointerout', () => {
         if (map.id !== this.selectedMapId) bg.setFillStyle(color);
       });
-
-      // Keep diffText alive (referenced so it doesn't get GC'd)
-      void diffText;
     });
   }
 
@@ -219,21 +221,25 @@ export class MenuScene extends Phaser.Scene {
         this.refreshDifficultyButtons();
       });
       bg.on('pointerover', () => {
-        if (key !== this.selectedDifficulty) bg.setFillStyle(color + 0x111111);
+        if (key !== this.selectedDifficulty) {
+          const r = Math.min(0xff, ((color >> 16) & 0xff) + 0x11);
+          const g = Math.min(0xff, ((color >>  8) & 0xff) + 0x11);
+          const b = Math.min(0xff, ( color        & 0xff) + 0x11);
+          bg.setFillStyle((r << 16) | (g << 8) | b);
+        }
       });
       bg.on('pointerout', () => {
         if (key !== this.selectedDifficulty) bg.setFillStyle(color);
       });
     });
 
-    // Difficulty descriptions — shown below the buttons as subtle context
     const diffDescs: Record<DifficultyKey, string> = {
-      easy:   DIFFICULTY_SETTINGS.easy.label + ' — more gold, more lives, weaker enemies',
-      normal: DIFFICULTY_SETTINGS.normal.label + ' — balanced for a first run',
-      hard:   DIFFICULTY_SETTINGS.hard.label + ' — less gold, stronger enemies',
+      easy:   'Easy — more gold, more lives, weaker enemies',
+      normal: 'Normal — balanced for a first run',
+      hard:   'Hard — less gold, stronger enemies',
     };
 
-    this.add.text(cx, 416, diffDescs[this.selectedDifficulty], {
+    this.diffDescText = this.add.text(cx, 416, diffDescs[this.selectedDifficulty], {
       fontSize: '11px',
       color: '#666677',
       fontFamily: 'Arial, sans-serif',
@@ -246,6 +252,13 @@ export class MenuScene extends Phaser.Scene {
       bg.setStrokeStyle(selected ? 2 : 1, selected ? 0xffffff : 0x444466);
       text.setStyle({ color: selected ? '#ffffff' : '#aaaaaa', fontStyle: selected ? 'bold' : 'normal' });
     }
+
+    const diffDescs: Record<DifficultyKey, string> = {
+      easy:   'Easy — more gold, more lives, weaker enemies',
+      normal: 'Normal — balanced for a first run',
+      hard:   'Hard — less gold, stronger enemies',
+    };
+    this.diffDescText?.setText(diffDescs[this.selectedDifficulty]);
   }
 
   private buildControlsPanel(cx: number): void {

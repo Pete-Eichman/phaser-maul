@@ -1,14 +1,9 @@
-// ============================================================
-// GAME CONFIGURATION
-// All balance numbers, tower/enemy stats, and map data live here.
-// Tweak these to tune gameplay — no need to touch game logic.
-// ============================================================
-
 export const TILE_SIZE = 48;
 export const MAP_COLS = 20;
 export const MAP_ROWS = 13;
 export const GAME_WIDTH = MAP_COLS * TILE_SIZE;   // 960
 export const GAME_HEIGHT = MAP_ROWS * TILE_SIZE;  // 624
+export const UI_HEIGHT = 136;
 
 // Starting resources
 export const STARTING_GOLD = 100;
@@ -34,9 +29,7 @@ export const COLORS = {
   },
 };
 
-// ============================================================
-// DIFFICULTY SETTINGS
-// ============================================================
+// Difficulty settings
 export type DifficultyKey = 'easy' | 'normal' | 'hard';
 
 export interface DifficultySetting {
@@ -75,10 +68,7 @@ export const DIFFICULTY_SETTINGS: Record<DifficultyKey, DifficultySetting> = {
   },
 };
 
-// ============================================================
-// TOWER DEFINITIONS
-// Each tower type has stats per upgrade level (0 = base, 1, 2)
-// ============================================================
+// Tower definitions — stats per upgrade level (0 = base, 1, 2)
 export interface TowerLevel {
   damage: number;
   range: number;        // in pixels
@@ -221,9 +211,7 @@ export const TOWER_DEFS: Record<string, TowerDef> = {
   },
 };
 
-// ============================================================
-// ENEMY DEFINITIONS
-// ============================================================
+// Enemy definitions
 export interface EnemyDef {
   id: string;
   name: string;
@@ -335,12 +323,7 @@ export const ENEMY_DEFS: Record<string, EnemyDef> = {
   },
 };
 
-// ============================================================
-// WAVE DEFINITIONS
-// Each wave is an array of spawn groups.
-// A group spawns `count` of `enemyType` with `interval` ms between each.
-// `delay` is ms to wait before this group starts (after previous group).
-// ============================================================
+// Wave definitions — spawn groups; interval/delay in ms
 export interface SpawnGroup {
   enemyType: string;
   count: number;
@@ -445,9 +428,7 @@ export const WAVE_DEFS: WaveDef[] = [
   },
 ];
 
-// ============================================================
-// SCORING
-// ============================================================
+// Score weights
 export const SCORE_WEIGHTS = {
   killMultiplier:  10,
   waveMultiplier:  25,
