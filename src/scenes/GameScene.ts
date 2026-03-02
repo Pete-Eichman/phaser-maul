@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS, GAME_WIDTH, GAME_HEIGHT, UI_HEIGHT,
-  COLORS, STARTING_GOLD, STARTING_LIVES,
+  COLORS, STARTING_GOLD, STARTING_LIVES, WINTERMAUL_STARTING_GOLD,
   TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
   WAVE_DEFS,
@@ -73,6 +73,7 @@ export class GameScene extends Phaser.Scene {
   private sellButton: Phaser.GameObjects.Container | null = null;
   private targetModeButton: Phaser.GameObjects.Container | null = null;
   private towerNameText: Phaser.GameObjects.Text | null = null;
+  private convertPanelItems: Phaser.GameObjects.GameObject[] = [];
   private selectedTower: Tower | null = null;
   private muteButton!: Phaser.GameObjects.Container;
   private speedButton!: Phaser.GameObjects.Container;
@@ -120,11 +121,14 @@ export class GameScene extends Phaser.Scene {
     this.targetModeButton = null;
     this.towerNameText = null;
     this.towerButtons = [];
+    this.convertPanelItems = [];
   }
 
   create(): void {
     const diff = DIFFICULTY_SETTINGS[this.difficultyKey];
-    this.gold = Math.round(STARTING_GOLD * diff.startingGoldMult);
+    this.gold = this.isOpenField
+      ? Math.round(WINTERMAUL_STARTING_GOLD * diff.startingGoldMult)
+      : Math.round(STARTING_GOLD * diff.startingGoldMult);
     this.lives = Math.round(STARTING_LIVES * diff.startingLivesMult);
 
     // Cell size = 2 tiles; balances bucket count vs enemies-per-bucket at typical wave sizes
@@ -158,8 +162,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-      const towerKeys = ['1', '2', '3', '4', '5', '6', '7', '8'];
-      const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall'];
+      const towerIds = this.isOpenField
+        ? ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall']
+        : ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
+      const towerKeys = towerIds.map((_, i) => `${i + 1}`);
       const idx = towerKeys.indexOf(event.key);
       if (idx !== -1) this.selectTowerDef(towerIds[idx]);
       if (event.key === 'Escape') this.deselectAll();
@@ -471,7 +477,9 @@ export class GameScene extends Phaser.Scene {
     this.infoPanelGraphics = this.add.graphics();
     this.infoPanelGraphics.setDepth(53);
 
-    const towerIds = ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall'];
+    const towerIds = this.isOpenField
+      ? ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall']
+      : ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison'];
     const startX = 82;
     towerIds.forEach((id, i) => {
       const def = TOWER_DEFS[id];
@@ -792,7 +800,7 @@ export class GameScene extends Phaser.Scene {
 
     const idleText = this.isOpenField
       ? 'Build a maze — enemies pathfind through your towers  (1–8)'
-      : 'Select a tower (1–8) then click the map to place it';
+      : 'Select a tower (1–7) then click the map to place it';
     const status = this.selectedTowerDef
       ? `Placing: ${this.selectedTowerDef.name} (${this.selectedTowerDef.cost}g) — Click to place, Esc to cancel`
       : this.waveManager.waveInProgress
@@ -870,6 +878,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showTowerInfo(tower: Tower): void {
+    if (tower.def.id === 'wall') { this.showWallConvertPanel(tower); return; }
+
     this.clearTowerInfo();
 
     const uiY = MAP_ROWS * TILE_SIZE;
@@ -943,6 +953,158 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private showWallConvertPanel(wall: Tower): void {
+    this.clearTowerInfo();
+
+    const uiY = MAP_ROWS * TILE_SIZE;
+    const panelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
+    const leftColX = INFO_PANEL_X + 52;
+    const rightColX = INFO_PANEL_X + 157;
+    const btnW = 94;
+    const btnH = 14;
+    const rowYs = [uiY + 82, uiY + 97, uiY + 112, uiY + 127];
+
+    // WALL header — stored in towerNameText for cleanup
+    const colorHex = `#${wall.def.color.toString(16).padStart(6, '0')}`;
+    this.towerNameText = this.add.text(panelCenterX, uiY + 60, 'WALL', {
+      fontSize: '12px',
+      fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+      color: colorHex,
+    }).setOrigin(0.5).setDepth(52);
+
+    // "Convert to:" label
+    const convertLabel = this.add.text(panelCenterX, uiY + 71, 'Convert to:', {
+      fontSize: '11px',
+      color: '#777788',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(52);
+    this.convertPanelItems.push(convertLabel);
+
+    // Two-column grid: left ids and right ids per row
+    const leftIds  = ['arrow',  'cannon',    'ice',    'fire'];
+    const rightIds = ['sniper', 'lightning', 'poison', ''];
+
+    leftIds.forEach((id, r) => {
+      this.makeConvertButton(leftColX, rowYs[r], btnW, btnH, id, wall);
+    });
+    rightIds.forEach((id, r) => {
+      if (id) this.makeConvertButton(rightColX, rowYs[r], btnW, btnH, id, wall);
+    });
+
+    // Sell button (right col, row 4) — stored in sellButton for cleanup
+    const sellValue = Math.floor(wall.def.cost * 0.6);
+    const sellBg = this.add.rectangle(rightColX, rowYs[3], btnW, btnH, 0x555555);
+    sellBg.setStrokeStyle(1, 0x777777);
+    sellBg.setDepth(52);
+    sellBg.setInteractive({ useHandCursor: true });
+    this.convertPanelItems.push(sellBg);
+
+    const sellText = this.add.text(rightColX, rowYs[3], `Sell ${sellValue}g`, {
+      fontSize: '10px',
+      color: '#cccccc',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(52);
+    this.convertPanelItems.push(sellText);
+
+    sellBg.on('pointerdown', () => {
+      this.gold += sellValue;
+      const idx = this.towers.indexOf(wall);
+      if (idx !== -1) this.towers.splice(idx, 1);
+      if (this.isOpenField) {
+        this.pathGrid[wall.tileY][wall.tileX] = 1;
+        const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
+        this.waypoints = newWaypoints;
+        this.waveManager.updateWaypoints(newWaypoints);
+        for (const enemy of this.enemies) {
+          if (enemy.alive) enemy.repath(newWaypoints);
+        }
+      }
+      this.clearTowerSelection();
+      wall.startSellAnimation(() => wall.destroy());
+    });
+    sellBg.on('pointerover', () => sellBg.setFillStyle(0x777777));
+    sellBg.on('pointerout',  () => sellBg.setFillStyle(0x555555));
+  }
+
+  private makeConvertButton(
+    x: number, y: number, width: number, height: number,
+    defId: string, wall: Tower,
+  ): void {
+    const def = TOWER_DEFS[defId];
+    const canAfford = this.gold >= def.cost;
+    const fillColor = canAfford ? 0x2a2a4a : 0x1a1a2a;
+    const strokeColor = canAfford ? 0x444466 : 0x222233;
+    const textColor = canAfford ? '#cccccc' : '#555566';
+
+    const bg = this.add.rectangle(x, y, width, height, fillColor);
+    bg.setStrokeStyle(1, strokeColor);
+    bg.setDepth(52);
+    this.convertPanelItems.push(bg);
+
+    const shortName = def.name.replace(' Tower', '');
+    const label = this.add.text(x, y, `${shortName} ${def.cost}g`, {
+      fontSize: '10px',
+      color: textColor,
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(52);
+    this.convertPanelItems.push(label);
+
+    if (canAfford) {
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', () => this.convertWallToTower(wall, defId));
+      bg.on('pointerover', () => bg.setFillStyle(0x3a3a5a));
+      bg.on('pointerout',  () => bg.setFillStyle(fillColor));
+    }
+  }
+
+  private convertWallToTower(wall: Tower, defId: string): void {
+    const def = TOWER_DEFS[defId];
+    if (this.gold < def.cost) return;
+
+    this.gold -= def.cost;
+    this.clearTowerInfo();
+    this.selectedTower = null;
+
+    const { tileX, tileY } = wall;
+    const idx = this.towers.indexOf(wall);
+    if (idx !== -1) this.towers.splice(idx, 1);
+    wall.destroy();
+
+    const center = tileToPixel(tileX, tileY);
+    const newTower = new Tower(this, center.x, center.y, tileX, tileY, defId);
+
+    newTower.sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        if (this.selectedTower === newTower && newTower.def.id !== 'poison' && newTower.def.id !== 'wall') {
+          newTower.cycleTargetMode();
+          this.clearTowerInfo();
+          this.showTowerInfo(newTower);
+        }
+        pointer.event.stopPropagation();
+      } else if (!this.selectedTowerDef) {
+        pointer.event.stopPropagation();
+        this.clearTowerSelection();
+        this.selectedTower = newTower;
+        newTower.showRange();
+        this.showTowerInfo(newTower);
+      }
+    });
+
+    this.towers.push(newTower);
+
+    // Pop-in tween — same as tryPlaceTower
+    newTower.sprite.setScale(0.4);
+    newTower.inner.setScale(0.4);
+    this.tweens.add({
+      targets: [newTower.sprite, newTower.inner],
+      scaleX: 1,
+      scaleY: 1,
+      duration: 150,
+      ease: 'Back.easeOut',
+    });
+  }
+
   private clearTowerInfo(): void {
     this.upgradeButton?.destroy();
     this.upgradeButton = null;
@@ -952,6 +1114,8 @@ export class GameScene extends Phaser.Scene {
     this.targetModeButton = null;
     this.towerNameText?.destroy();
     this.towerNameText = null;
+    for (const item of this.convertPanelItems) item.destroy();
+    this.convertPanelItems = [];
   }
 
   private clearTowerSelection(): void {

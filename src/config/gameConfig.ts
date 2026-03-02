@@ -8,6 +8,7 @@ export const UI_HEIGHT = 136;
 // Starting resources
 export const STARTING_GOLD = 100;
 export const STARTING_LIVES = 20;
+export const WINTERMAUL_STARTING_GOLD = 300;  // 20 walls at 15g each to start the maze
 
 // Colors for procedural graphics (no sprite assets needed to start)
 export const COLORS = {
