@@ -294,10 +294,6 @@ export class GameScene extends Phaser.Scene {
         );
         rect.setDepth(0);
 
-        if (tile === 1) {
-          rect.setStrokeStyle(1, COLORS.pathBorder, 0.4);
-        }
-
         // Subtle grass detail marks — deterministic from tile position
         if (tile === 0) {
           const seed = (row * 31 + col * 17) % 100;
@@ -312,6 +308,43 @@ export class GameScene extends Phaser.Scene {
               detailsG.fillRect(x + ox2, y + oy2, (seed % 2) + 2, (seed % 3) + 2);
             }
           }
+        }
+      }
+    }
+
+    // Path edge highlights — 2px lines where path tiles meet grass or map boundary
+    const edgeG = this.add.graphics();
+    edgeG.setDepth(1);
+    for (let row = 0; row < MAP_ROWS; row++) {
+      for (let col = 0; col < MAP_COLS; col++) {
+        const tile = grid[row][col];
+        if (tile !== 1 && tile !== 2) continue;
+        const x = col * TILE_SIZE;
+        const y = row * TILE_SIZE;
+        edgeG.lineStyle(2, COLORS.pathEdge, 0.65);
+        if (row === 0 || grid[row - 1][col] === 0) {
+          edgeG.beginPath();
+          edgeG.moveTo(x, y);
+          edgeG.lineTo(x + TILE_SIZE, y);
+          edgeG.strokePath();
+        }
+        if (row === MAP_ROWS - 1 || grid[row + 1][col] === 0) {
+          edgeG.beginPath();
+          edgeG.moveTo(x, y + TILE_SIZE);
+          edgeG.lineTo(x + TILE_SIZE, y + TILE_SIZE);
+          edgeG.strokePath();
+        }
+        if (col === 0 || grid[row][col - 1] === 0) {
+          edgeG.beginPath();
+          edgeG.moveTo(x, y);
+          edgeG.lineTo(x, y + TILE_SIZE);
+          edgeG.strokePath();
+        }
+        if (col === MAP_COLS - 1 || grid[row][col + 1] === 0) {
+          edgeG.beginPath();
+          edgeG.moveTo(x + TILE_SIZE, y);
+          edgeG.lineTo(x + TILE_SIZE, y + TILE_SIZE);
+          edgeG.strokePath();
         }
       }
     }
@@ -471,43 +504,66 @@ export class GameScene extends Phaser.Scene {
     const icon = this.add.graphics();
     const iconY = -20;
     icon.fillStyle(def.color, 1);
+    const iconPts = (coords: number[]): { x: number; y: number }[] => {
+      const result: { x: number; y: number }[] = [];
+      for (let i = 0; i < coords.length; i += 2) {
+        result.push({ x: coords[i], y: iconY + coords[i + 1] });
+      }
+      return result;
+    };
     switch (def.id) {
       case 'arrow':
-        icon.fillTriangle(-9, iconY + 10, 9, iconY + 10, 0, iconY - 10);
+        icon.fillPoints(iconPts([0, -9, 9, 0, 0, 9, -9, 0]), true);
         break;
-      case 'cannon':
-        icon.fillCircle(0, iconY, 10);
+      case 'cannon': {
+        const oct: number[] = [];
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4;
+          oct.push(Math.cos(a) * 9, Math.sin(a) * 9);
+        }
+        icon.fillPoints(iconPts(oct), true);
         break;
-      case 'ice':
-        icon.fillTriangle(0, iconY - 11, 10, iconY + 1, 0, iconY + 11);
-        icon.fillTriangle(0, iconY - 11, -10, iconY + 1, 0, iconY + 11);
+      }
+      case 'ice': {
+        const r = 9;
+        const h = r * Math.sin(Math.PI / 3);
+        const half = r * 0.5;
+        icon.fillTriangle(0, iconY - r, h, iconY + half, -h, iconY + half);
+        icon.fillTriangle(0, iconY + r, h, iconY - half, -h, iconY - half);
         break;
-      case 'fire':
-        icon.fillTriangle(-8, iconY + 10, 8, iconY + 10, 0, iconY - 10);
-        icon.fillStyle(0xffcc55, 1);
-        icon.fillTriangle(-4, iconY + 5, 4, iconY + 5, 0, iconY - 3);
+      }
+      case 'fire': {
+        const pent: number[] = [];
+        for (let i = 0; i < 5; i++) {
+          const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+          pent.push(Math.cos(a) * 9, Math.sin(a) * 9);
+        }
+        icon.fillPoints(iconPts(pent), true);
         break;
+      }
       case 'sniper':
-        icon.fillTriangle(-4, iconY + 12, 4, iconY + 12, 0, iconY - 12);
+        icon.fillPoints(iconPts([0, -10, 5, 0, 0, 10, -5, 0]), true);
         break;
-      case 'lightning':
-        icon.lineStyle(3, def.color, 1);
-        icon.beginPath();
-        icon.moveTo(5, iconY - 11);
-        icon.lineTo(-3, iconY);
-        icon.lineTo(5, iconY);
-        icon.lineTo(-5, iconY + 11);
-        icon.strokePath();
+      case 'lightning': {
+        const hex: number[] = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          hex.push(Math.cos(a) * 9, Math.sin(a) * 9);
+        }
+        icon.fillPoints(iconPts(hex), true);
         break;
-      case 'poison':
-        icon.fillCircle(0, iconY, 9);
-        icon.fillStyle(0x44aa22, 1);
-        icon.fillCircle(0, iconY - 13, 4);
-        icon.fillCircle(11, iconY + 7, 3);
-        icon.fillCircle(-11, iconY + 7, 3);
+      }
+      case 'poison': {
+        const star: number[] = [];
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + (i * Math.PI) / 5;
+          const r2 = i % 2 === 0 ? 9 : 4;
+          star.push(Math.cos(a) * r2, Math.sin(a) * r2);
+        }
+        icon.fillPoints(iconPts(star), true);
         break;
+      }
       case 'wall':
-        icon.fillStyle(def.color, 1);
         icon.fillRect(-9, iconY - 9, 18, 18);
         break;
     }
