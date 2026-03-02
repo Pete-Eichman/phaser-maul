@@ -444,3 +444,18 @@ export const WAVE_DEFS: WaveDef[] = [
     reward: 100,
   },
 ];
+
+// ============================================================
+// SCORING
+// ============================================================
+export const SCORE_WEIGHTS = {
+  killMultiplier:  10,
+  waveMultiplier:  25,
+  livesMultiplier: 50,
+  winBonus:       500,
+  difficultyMult: {
+    easy:   0.8,
+    normal: 1.0,
+    hard:   1.3,
+  } as Record<DifficultyKey, number>,
+};
