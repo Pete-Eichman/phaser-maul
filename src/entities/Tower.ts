@@ -4,6 +4,8 @@ import { Enemy } from './Enemy';
 import { Projectile } from './Projectile';
 import { distance } from '@/utils/helpers';
 
+export type TargetMode = 'closest' | 'first' | 'strongest' | 'weakest';
+
 export class Tower {
   public sprite: Phaser.GameObjects.Rectangle;
   public inner: Phaser.GameObjects.Rectangle;
@@ -13,6 +15,7 @@ export class Tower {
   public level: number = 0;
   public tileX: number;
   public tileY: number;
+  public targetMode: TargetMode = 'closest';
 
   private scene: Phaser.Scene;
   private fireCooldown: number = 0;
@@ -71,6 +74,11 @@ export class Tower {
     return this.def.levels[this.level + 1].upgradeCost;
   }
 
+  cycleTargetMode(): void {
+    const modes: TargetMode[] = ['closest', 'first', 'strongest', 'weakest'];
+    this.targetMode = modes[(modes.indexOf(this.targetMode) + 1) % modes.length];
+  }
+
   upgrade(): void {
     if (!this.canUpgrade()) return;
     this.level++;
@@ -79,9 +87,7 @@ export class Tower {
     const stats = this.getStats();
     this.rangeCircle.setRadius(stats.range);
 
-    // Brighten the inner square slightly per level
-    const brighten = this.level * 0x111111;
-    this.inner.setFillStyle(this.def.color + brighten);
+    this.inner.setFillStyle(this.addColorPerChannel(this.def.color, this.level * 0x11));
 
     this.updateLevelIndicators();
   }
@@ -125,27 +131,37 @@ export class Tower {
       return null;
     }
 
-    let closestEnemy: Enemy | null = null;
-    let closestDist = Infinity;
+    const inRange = enemies.filter(
+      (e) => e.alive && distance(this.sprite.x, this.sprite.y, e.sprite.x, e.sprite.y) <= stats.range,
+    );
+    if (inRange.length === 0) return null;
 
-    for (const enemy of enemies) {
-      if (!enemy.alive) continue;
-      const dist = distance(this.sprite.x, this.sprite.y, enemy.sprite.x, enemy.sprite.y);
-      if (dist <= stats.range && dist < closestDist) {
-        closestDist = dist;
-        closestEnemy = enemy;
-      }
+    let target: Enemy;
+    switch (this.targetMode) {
+      case 'first':
+        target = inRange.reduce((b, e) => e.pathProgress > b.pathProgress ? e : b);
+        break;
+      case 'strongest':
+        target = inRange.reduce((b, e) => e.health > b.health ? e : b);
+        break;
+      case 'weakest':
+        target = inRange.reduce((b, e) => e.health < b.health ? e : b);
+        break;
+      default: // 'closest'
+        target = inRange.reduce((b, e) => {
+          const db = distance(this.sprite.x, this.sprite.y, b.sprite.x, b.sprite.y);
+          const de = distance(this.sprite.x, this.sprite.y, e.sprite.x, e.sprite.y);
+          return de < db ? e : b;
+        });
     }
-
-    if (!closestEnemy) return null;
 
     // Fire!
     this.fireCooldown = 1000 / stats.fireRate;
 
     // Point turret at target
     const angle = Math.atan2(
-      closestEnemy.sprite.y - this.sprite.y,
-      closestEnemy.sprite.x - this.sprite.x
+      target.sprite.y - this.sprite.y,
+      target.sprite.x - this.sprite.x
     );
     const lineLength = 18;
     this.turretLine.setTo(
@@ -159,20 +175,29 @@ export class Tower {
       this.scene,
       this.sprite.x,
       this.sprite.y,
-      closestEnemy,
+      target,
       stats.damage,
       this.def,
       this.level
     );
 
-    const normalColor = this.def.color + this.level * 0x111111;
-    const flashColor = Math.min(0xffffff, normalColor + 0x404040);
+    const normalColor = this.addColorPerChannel(this.def.color, this.level * 0x11);
+    const flashColor = this.addColorPerChannel(normalColor, 0x40);
     this.inner.setFillStyle(flashColor);
     this.scene.time.delayedCall(80, () => {
       if (this.inner?.active) this.inner.setFillStyle(normalColor);
     });
 
     return projectile;
+  }
+
+  // Adds `amount` to each RGB channel independently, clamping at 0xff per channel
+  // to prevent overflow from carrying bits across channel boundaries.
+  private addColorPerChannel(base: number, amount: number): number {
+    const r = Math.min(0xff, ((base >> 16) & 0xff) + amount);
+    const g = Math.min(0xff, ((base >> 8) & 0xff) + amount);
+    const b = Math.min(0xff, (base & 0xff) + amount);
+    return (r << 16) | (g << 8) | b;
   }
 
   startSellAnimation(onComplete: () => void): void {
