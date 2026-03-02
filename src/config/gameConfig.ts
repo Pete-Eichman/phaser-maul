@@ -15,6 +15,7 @@ export const COLORS = {
   grassAlt: 0x3a6b4a,
   path: 0x8c7a6b,
   pathBorder: 0x7a6b5c,
+  pathEdge: 0x8ab4c8,
   buildable: 0x2d5a3f,
   buildableHover: 0x4a8a5a,
   invalidHover: 0xff4444,

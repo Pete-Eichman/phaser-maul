@@ -8,7 +8,7 @@ export type TargetMode = 'closest' | 'first' | 'strongest' | 'weakest';
 
 export class Tower {
   public sprite: Phaser.GameObjects.Rectangle;
-  public inner: Phaser.GameObjects.Rectangle;
+  public inner: Phaser.GameObjects.Graphics;
   public rangeCircle: Phaser.GameObjects.Arc;
   public levelIndicators: Phaser.GameObjects.Arc[] = [];
   public def: TowerDef;
@@ -19,6 +19,7 @@ export class Tower {
 
   private scene: Phaser.Scene;
   private fireCooldown: number = 0;
+  private innerColor: number = 0;
   private turretLine: Phaser.GameObjects.Line;
 
   constructor(
@@ -38,8 +39,11 @@ export class Tower {
     this.sprite = scene.add.rectangle(x, y, 36, 36, 0x1c1c2e);
     this.sprite.setDepth(5);
 
-    this.inner = scene.add.rectangle(x, y, 26, 26, this.def.color);
+    this.innerColor = this.def.color;
+    this.inner = scene.add.graphics();
+    this.inner.setPosition(x, y);
     this.inner.setDepth(5.1);
+    this.drawInnerShape(this.innerColor);
 
     // Turret direction indicator (line from center)
     this.turretLine = scene.add.line(0, 0, x, y, x, y - 18, 0x222222);
@@ -94,7 +98,8 @@ export class Tower {
     const stats = this.getStats();
     this.rangeCircle.setRadius(stats.range);
 
-    this.inner.setFillStyle(this.addColorPerChannel(this.def.color, this.level * 0x11));
+    this.innerColor = this.addColorPerChannel(this.def.color, this.level * 0x11);
+    this.drawInnerShape(this.innerColor);
 
     this.updateLevelIndicators();
   }
@@ -189,11 +194,10 @@ export class Tower {
       this.level
     );
 
-    const normalColor = this.addColorPerChannel(this.def.color, this.level * 0x11);
-    const flashColor = this.addColorPerChannel(normalColor, 0x40);
-    this.inner.setFillStyle(flashColor);
+    const flashColor = this.addColorPerChannel(this.innerColor, 0x40);
+    this.drawInnerShape(flashColor);
     this.scene.time.delayedCall(80, () => {
-      if (this.inner?.active) this.inner.setFillStyle(normalColor);
+      if (this.inner?.active) this.drawInnerShape(this.innerColor);
     });
 
     return projectile;
@@ -206,6 +210,78 @@ export class Tower {
     const g = Math.min(0xff, ((base >> 8) & 0xff) + amount);
     const b = Math.min(0xff, (base & 0xff) + amount);
     return (r << 16) | (g << 8) | b;
+  }
+
+  private drawInnerShape(color: number): void {
+    this.inner.clear();
+    this.inner.fillStyle(color, 1);
+
+    const pts = (coords: number[]): { x: number; y: number }[] => {
+      const result: { x: number; y: number }[] = [];
+      for (let i = 0; i < coords.length; i += 2) {
+        result.push({ x: coords[i], y: coords[i + 1] });
+      }
+      return result;
+    };
+
+    switch (this.def.id) {
+      case 'arrow':
+        this.inner.fillPoints(pts([0, -13, 13, 0, 0, 13, -13, 0]), true);
+        break;
+      case 'cannon': {
+        const oct: number[] = [];
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4;
+          oct.push(Math.cos(a) * 12, Math.sin(a) * 12);
+        }
+        this.inner.fillPoints(pts(oct), true);
+        break;
+      }
+      case 'ice': {
+        const r = 12;
+        const h = r * Math.sin(Math.PI / 3);
+        const half = r * 0.5;
+        this.inner.fillTriangle(0, -r, h, half, -h, half);
+        this.inner.fillTriangle(0, r, h, -half, -h, -half);
+        break;
+      }
+      case 'fire': {
+        const pent: number[] = [];
+        for (let i = 0; i < 5; i++) {
+          const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+          pent.push(Math.cos(a) * 12, Math.sin(a) * 12);
+        }
+        this.inner.fillPoints(pts(pent), true);
+        break;
+      }
+      case 'sniper':
+        this.inner.fillPoints(pts([0, -14, 7, 0, 0, 14, -7, 0]), true);
+        break;
+      case 'lightning': {
+        const hex: number[] = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          hex.push(Math.cos(a) * 12, Math.sin(a) * 12);
+        }
+        this.inner.fillPoints(pts(hex), true);
+        break;
+      }
+      case 'poison': {
+        const star: number[] = [];
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + (i * Math.PI) / 5;
+          const r2 = i % 2 === 0 ? 12 : 5;
+          star.push(Math.cos(a) * r2, Math.sin(a) * r2);
+        }
+        this.inner.fillPoints(pts(star), true);
+        break;
+      }
+      case 'wall':
+        this.inner.fillRect(-11, -11, 22, 22);
+        break;
+      default:
+        this.inner.fillRect(-13, -13, 26, 26);
+    }
   }
 
   startSellAnimation(onComplete: () => void): void {
