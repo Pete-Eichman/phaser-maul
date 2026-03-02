@@ -219,6 +219,17 @@ export const TOWER_DEFS: Record<string, TowerDef> = {
     ],
     special: 'Poisons all enemies in range (stacks from multiple towers)',
   },
+  wall: {
+    id: 'wall',
+    name: 'Wall',
+    description: 'Blocks the path. No damage.',
+    cost: 15,
+    color: 0x667788,
+    projectileColor: 0x667788,
+    projectileSpeed: 0,
+    damageType: 'physical',
+    levels: [{ damage: 0, range: 0, fireRate: 0, upgradeCost: 0 }],
+  },
 };
 
 // ============================================================

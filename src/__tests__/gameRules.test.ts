@@ -15,8 +15,10 @@ import { calculateDamage, distance, tileToPixel, pixelToTile } from '@/utils/hel
 // ─── Damage pipeline ──────────────────────────────────────────────────────────
 
 describe('Damage pipeline', () => {
-  it('every tower type deals at least 1 damage to every enemy type at base level', () => {
-    for (const tower of Object.values(TOWER_DEFS)) {
+  const combatTowers = Object.values(TOWER_DEFS).filter(t => t.id !== 'wall');
+
+  it('every combat tower deals at least 1 damage to every enemy type at base level', () => {
+    for (const tower of combatTowers) {
       for (const enemy of Object.values(ENEMY_DEFS)) {
         // Ghost physical immunity is enforced at the Projectile level, not calculateDamage.
         // This test verifies the calculateDamage floor — Projectile handles the immunity path.
@@ -31,8 +33,8 @@ describe('Damage pipeline', () => {
     }
   });
 
-  it('every tower type deals at least 1 damage to every enemy type at max level', () => {
-    for (const tower of Object.values(TOWER_DEFS)) {
+  it('every combat tower deals at least 1 damage to every enemy type at max level', () => {
+    for (const tower of combatTowers) {
       const maxLevel = tower.levels[tower.levels.length - 1];
       for (const enemy of Object.values(ENEMY_DEFS)) {
         const dmg = calculateDamage(
@@ -46,8 +48,8 @@ describe('Damage pipeline', () => {
     }
   });
 
-  it('max-upgraded towers always deal at least as much damage as their base level', () => {
-    for (const tower of Object.values(TOWER_DEFS)) {
+  it('max-upgraded combat towers always deal at least as much damage as their base level', () => {
+    for (const tower of combatTowers) {
       for (const enemy of Object.values(ENEMY_DEFS)) {
         const baseDmg = calculateDamage(
           tower.levels[0].damage, tower.damageType,
@@ -63,7 +65,7 @@ describe('Damage pipeline', () => {
   });
 
   it('physical towers are less effective against armored enemies than unarmored ones', () => {
-    const physicalTowers = Object.values(TOWER_DEFS).filter(t => t.damageType === 'physical');
+    const physicalTowers = Object.values(TOWER_DEFS).filter(t => t.damageType === 'physical' && t.id !== 'wall');
     const armored   = Object.values(ENEMY_DEFS).filter(e => e.armor > 0);
     const unarmored = Object.values(ENEMY_DEFS).filter(e => e.armor === 0);
 
@@ -124,9 +126,14 @@ describe('Path coherence', () => {
   // bad grid edit is caught immediately by the test suite.
   const mapEntries = Object.entries(MAP_DEFS);
 
+  const getGrid = (map: (typeof MAP_DEFS)[string]) =>
+    map.openField
+      ? map.grid.map(row => row.map(tile => tile === 0 ? 1 : tile))
+      : map.grid;
+
   it('consecutive waypoints share an axis (orthogonal movement)', () => {
     for (const [, map] of mapEntries) {
-      const waypoints = findPath(map.grid, map.start, map.end);
+      const waypoints = findPath(getGrid(map), map.start, map.end);
       for (let i = 0; i < waypoints.length - 1; i++) {
         const a = waypoints[i];
         const b = waypoints[i + 1];
@@ -137,7 +144,7 @@ describe('Path coherence', () => {
 
   it('every waypoint pixel center round-trips through pixelToTile', () => {
     for (const [, map] of mapEntries) {
-      const waypoints = findPath(map.grid, map.start, map.end);
+      const waypoints = findPath(getGrid(map), map.start, map.end);
       for (const wp of waypoints) {
         const pixel = tileToPixel(wp.x, wp.y);
         expect(pixelToTile(pixel.x, pixel.y)).toEqual({ x: wp.x, y: wp.y });
@@ -147,7 +154,7 @@ describe('Path coherence', () => {
 
   it('distance between consecutive waypoints is positive', () => {
     for (const [, map] of mapEntries) {
-      const waypoints = findPath(map.grid, map.start, map.end);
+      const waypoints = findPath(getGrid(map), map.start, map.end);
       for (let i = 0; i < waypoints.length - 1; i++) {
         const a = tileToPixel(waypoints[i].x, waypoints[i].y);
         const b = tileToPixel(waypoints[i + 1].x, waypoints[i + 1].y);
@@ -158,7 +165,7 @@ describe('Path coherence', () => {
 
   it('total path length exceeds 500px on every map', () => {
     for (const [, map] of mapEntries) {
-      const waypoints = findPath(map.grid, map.start, map.end);
+      const waypoints = findPath(getGrid(map), map.start, map.end);
       let total = 0;
       for (let i = 0; i < waypoints.length - 1; i++) {
         const a = tileToPixel(waypoints[i].x, waypoints[i].y);
@@ -223,38 +230,40 @@ describe('Wave escalation', () => {
 // ─── Tower balance sanity ─────────────────────────────────────────────────────
 
 describe('Tower balance', () => {
-  it('the most expensive tower at base has higher DPS than the cheapest at base', () => {
+  const combatTowers = Object.values(TOWER_DEFS).filter(t => t.id !== 'wall');
+
+  it('the most expensive combat tower at base has higher DPS than the cheapest combat tower at base', () => {
     const dps = (towerId: string) => {
       const def = TOWER_DEFS[towerId];
       // DPS = damage × fireRate (ignoring armor for a fair comparison)
       return def.levels[0].damage * def.levels[0].fireRate;
     };
 
-    const costs = Object.values(TOWER_DEFS).map(d => d.cost);
+    const costs = combatTowers.map(d => d.cost);
     const maxCost = Math.max(...costs);
     const minCost = Math.min(...costs);
 
-    const mostExpensive = Object.values(TOWER_DEFS).find(d => d.cost === maxCost)!;
-    const cheapest      = Object.values(TOWER_DEFS).find(d => d.cost === minCost)!;
+    const mostExpensive = combatTowers.find(d => d.cost === maxCost)!;
+    const cheapest      = combatTowers.find(d => d.cost === minCost)!;
 
     expect(dps(mostExpensive.id)).toBeGreaterThan(dps(cheapest.id));
   });
 
-  it('sniper tower has the longest range of any tower at every level', () => {
+  it('sniper tower has the longest range of any combat tower at every level', () => {
     for (let lvl = 0; lvl < 3; lvl++) {
       const sniperRange = TOWER_DEFS.sniper.levels[lvl].range;
-      for (const [id, def] of Object.entries(TOWER_DEFS)) {
-        if (id === 'sniper') continue;
-        expect(sniperRange).toBeGreaterThan(def.levels[lvl].range);
+      for (const tower of combatTowers) {
+        if (tower.id === 'sniper') continue;
+        expect(sniperRange).toBeGreaterThan(tower.levels[lvl].range);
       }
     }
   });
 
-  it('sniper tower has the lowest fire rate (slowest shooter)', () => {
+  it('sniper tower has the lowest fire rate among combat towers (slowest shooter)', () => {
     const sniperRate = TOWER_DEFS.sniper.levels[0].fireRate;
-    for (const [id, def] of Object.entries(TOWER_DEFS)) {
-      if (id === 'sniper') continue;
-      expect(sniperRate).toBeLessThan(def.levels[0].fireRate);
+    for (const tower of combatTowers) {
+      if (tower.id === 'sniper') continue;
+      expect(sniperRate).toBeLessThan(tower.levels[0].fireRate);
     }
   });
 });

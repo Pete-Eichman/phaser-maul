@@ -113,6 +113,10 @@ export class WaveManager {
     };
   }
 
+  updateWaypoints(newWaypoints: Waypoint[]): void {
+    this.waypoints = newWaypoints;
+  }
+
   // Called when a splitter child is spawned mid-wave so wave-completion
   // accounting stays correct.
   addEnemy(): void {
