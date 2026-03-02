@@ -15,9 +15,23 @@ import { Projectile } from '@/entities/Projectile';
 import { WaveManager } from '@/systems/WaveManager';
 import { tileToPixel, pixelToTile } from '@/utils/helpers';
 import { computeScore, addLeaderboardEntry, LeaderboardEntry } from '@/utils/leaderboard';
+import {
+  sfxArrow, sfxCannon, sfxIce, sfxFire, sfxSniper, sfxLightning,
+  sfxEnemyDie, sfxLifeLost, sfxWaveStart, sfxVictory, sfxDefeat,
+  isMuted, toggleMute,
+} from '@/utils/sound';
 
 // Right-side panel start x (leaves room for 7 tower buttons at 90px spacing starting at 155)
 const INFO_PANEL_X = 745;
+
+const TOWER_SFX: Record<string, () => void> = {
+  arrow:     sfxArrow,
+  cannon:    sfxCannon,
+  ice:       sfxIce,
+  fire:      sfxFire,
+  sniper:    sfxSniper,
+  lightning: sfxLightning,
+};
 
 export class GameScene extends Phaser.Scene {
   // Game state
@@ -60,6 +74,7 @@ export class GameScene extends Phaser.Scene {
   private targetModeButton: Phaser.GameObjects.Container | null = null;
   private towerNameText: Phaser.GameObjects.Text | null = null;
   private selectedTower: Tower | null = null;
+  private muteButton!: Phaser.GameObjects.Container;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -153,6 +168,7 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.alive) {
         if (enemy.reachedEnd) {
           this.lives--;
+          sfxLifeLost();
           this.flashVignette();
           this.waveManager.onEnemyReachedEnd();
           enemy.destroy();
@@ -182,6 +198,7 @@ export class GameScene extends Phaser.Scene {
             }
           }
 
+          sfxEnemyDie();
           enemy.startDeathAnimation();
         } else if (!enemy.dying) {
           // Animation finished — clean up.
@@ -202,6 +219,7 @@ export class GameScene extends Phaser.Scene {
       const nearby = this.spatialHash.query(tower.sprite.x, tower.sprite.y, tower.getStats().range);
       const projectile = tower.update(delta, nearby);
       if (projectile) {
+        TOWER_SFX[tower.def.id]?.();
         projectile.onDamageDealt = (x, y, dmg, label) => {
           const offsetX = (Math.random() - 0.5) * 16;
           if (label) {
@@ -419,6 +437,8 @@ export class GameScene extends Phaser.Scene {
       'Start Wave', 0x4caf50,
       () => this.startWave(),
     );
+
+    this.muteButton = this.createMuteButton(620, uiY + 24);
   }
 
   private createTowerButton(
@@ -603,6 +623,35 @@ export class GameScene extends Phaser.Scene {
       bg.setFillStyle((r << 16) | (g << 8) | b);
     });
     bg.on('pointerout', () => bg.setFillStyle(color));
+
+    return container;
+  }
+
+  private createMuteButton(x: number, y: number): Phaser.GameObjects.Container {
+    const container = this.add.container(x, y);
+    container.setDepth(51);
+
+    const bg = this.add.rectangle(0, 0, 80, 28, 0x2a2a4a);
+    bg.setStrokeStyle(2, 0x444466);
+    bg.setInteractive({ useHandCursor: true });
+
+    const label = () => isMuted() ? 'SFX: OFF' : 'SFX: ON';
+    const text = this.add.text(0, 0, label(), {
+      fontSize: '12px',
+      color: '#dddddd',
+      fontStyle: 'bold',
+    });
+    text.setOrigin(0.5);
+
+    container.add([bg, text]);
+
+    bg.on('pointerdown', () => {
+      toggleMute();
+      text.setText(label());
+      bg.setFillStyle(isMuted() ? 0x1a1a2e : 0x2a2a4a);
+    });
+    bg.on('pointerover', () => bg.setFillStyle(isMuted() ? 0x1a1a2e : 0x3a3a5a));
+    bg.on('pointerout', () => bg.setFillStyle(isMuted() ? 0x1a1a2e : 0x2a2a4a));
 
     return container;
   }
@@ -893,6 +942,7 @@ export class GameScene extends Phaser.Scene {
     if (this.waveManager.waveInProgress) return;
     if (this.waveManager.allWavesComplete) return;
     const waveNumber = this.waveManager.currentWave + 1;
+    sfxWaveStart();
     this.waveManager.startNextWave();
     this.showWaveBanner(waveNumber);
     this.infoPanelText.setText('');
@@ -935,7 +985,7 @@ export class GameScene extends Phaser.Scene {
   // Game end
 
   private endGame(won: boolean): void {
-    if (won) { this.gameWon = true; } else { this.gameOver = true; }
+    if (won) { this.gameWon = true; sfxVictory(); } else { this.gameOver = true; sfxDefeat(); }
 
     const wavesCompleted = this.waveManager.currentWave;
     const score = computeScore({
