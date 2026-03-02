@@ -75,6 +75,13 @@ export class GameScene extends Phaser.Scene {
   private towerNameText: Phaser.GameObjects.Text | null = null;
   private selectedTower: Tower | null = null;
   private muteButton!: Phaser.GameObjects.Container;
+  private speedButton!: Phaser.GameObjects.Container;
+  private speedButtonText!: Phaser.GameObjects.Text;
+
+  // Pause / speed state
+  private paused: boolean = false;
+  private gameSpeed: 1 | 2 = 1;
+  private pauseOverlay: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -100,6 +107,9 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.gameWon = false;
     this.killCount = 0;
+    this.paused = false;
+    this.gameSpeed = 1;
+    this.pauseOverlay = null;
     this.towers = [];
     this.enemies = [];
     this.projectiles = [];
@@ -153,17 +163,22 @@ export class GameScene extends Phaser.Scene {
       const idx = towerKeys.indexOf(event.key);
       if (idx !== -1) this.selectTowerDef(towerIds[idx]);
       if (event.key === 'Escape') this.deselectAll();
+      if (event.key === 'p' || event.key === 'P') this.togglePause();
+      if (event.key === 'f' || event.key === 'F') this.toggleSpeed();
     });
   }
 
   update(_time: number, delta: number): void {
     if (this.gameOver || this.gameWon) return;
+    if (this.paused) return;
 
-    this.waveManager.update(delta);
+    const scaledDelta = delta * this.gameSpeed;
+
+    this.waveManager.update(scaledDelta);
 
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const enemy = this.enemies[i];
-      enemy.update(delta);
+      enemy.update(scaledDelta);
 
       if (!enemy.alive) {
         if (enemy.reachedEnd) {
@@ -217,7 +232,7 @@ export class GameScene extends Phaser.Scene {
 
     for (const tower of this.towers) {
       const nearby = this.spatialHash.query(tower.sprite.x, tower.sprite.y, tower.getStats().range);
-      const projectile = tower.update(delta, nearby);
+      const projectile = tower.update(scaledDelta, nearby);
       if (projectile) {
         TOWER_SFX[tower.def.id]?.();
         projectile.onDamageDealt = (x, y, dmg, label) => {
@@ -234,7 +249,7 @@ export class GameScene extends Phaser.Scene {
 
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
-      proj.update(delta, this.enemies);
+      proj.update(scaledDelta, this.enemies);
 
       if (!proj.alive) {
         proj.destroy();
@@ -439,6 +454,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.muteButton = this.createMuteButton(620, uiY + 24);
+    this.speedButton = this.createSpeedButton(700, uiY + 24);
   }
 
   private createTowerButton(
@@ -654,6 +670,58 @@ export class GameScene extends Phaser.Scene {
     bg.on('pointerout', () => bg.setFillStyle(isMuted() ? 0x1a1a2e : 0x2a2a4a));
 
     return container;
+  }
+
+  private createSpeedButton(x: number, y: number): Phaser.GameObjects.Container {
+    const container = this.add.container(x, y);
+    container.setDepth(51);
+
+    const bg = this.add.rectangle(0, 0, 80, 28, 0x2a2a4a);
+    bg.setStrokeStyle(2, 0x444466);
+    bg.setInteractive({ useHandCursor: true });
+
+    this.speedButtonText = this.add.text(0, 0, '1×', {
+      fontSize: '12px',
+      color: '#dddddd',
+      fontStyle: 'bold',
+    });
+    this.speedButtonText.setOrigin(0.5);
+
+    container.add([bg, this.speedButtonText]);
+
+    bg.on('pointerdown', () => this.toggleSpeed());
+    bg.on('pointerover', () => bg.setFillStyle(this.gameSpeed === 2 ? 0x1a3a6a : 0x3a3a5a));
+    bg.on('pointerout', () => bg.setFillStyle(this.gameSpeed === 2 ? 0x1a3a5a : 0x2a2a4a));
+
+    return container;
+  }
+
+  private togglePause(): void {
+    if (this.gameOver || this.gameWon) return;
+    this.paused = !this.paused;
+    if (this.paused) {
+      const mapH = MAP_ROWS * TILE_SIZE;
+      this.pauseOverlay = this.add.text(GAME_WIDTH / 2, mapH / 2, 'PAUSED', {
+        fontSize: '64px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 6,
+      });
+      this.pauseOverlay.setOrigin(0.5);
+      this.pauseOverlay.setDepth(100);
+    } else {
+      this.pauseOverlay?.destroy();
+      this.pauseOverlay = null;
+    }
+  }
+
+  private toggleSpeed(): void {
+    if (this.gameOver || this.gameWon) return;
+    this.gameSpeed = this.gameSpeed === 1 ? 2 : 1;
+    this.speedButtonText.setText(this.gameSpeed === 1 ? '1×' : '2×');
+    const bg = this.speedButton.getAt(0) as Phaser.GameObjects.Rectangle;
+    bg.setFillStyle(this.gameSpeed === 2 ? 0x1a3a5a : 0x2a2a4a);
   }
 
   // UI updates
