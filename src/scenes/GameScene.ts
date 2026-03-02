@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  TILE_SIZE, MAP_COLS, MAP_ROWS, GAME_WIDTH, GAME_HEIGHT,
+  TILE_SIZE, MAP_COLS, MAP_ROWS, GAME_WIDTH, GAME_HEIGHT, UI_HEIGHT,
   COLORS, STARTING_GOLD, STARTING_LIVES,
   TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
@@ -15,9 +15,6 @@ import { Projectile } from '@/entities/Projectile';
 import { WaveManager } from '@/systems/WaveManager';
 import { tileToPixel, pixelToTile } from '@/utils/helpers';
 import { computeScore, addLeaderboardEntry, LeaderboardEntry } from '@/utils/leaderboard';
-
-// UI panel height below the game map
-const UI_HEIGHT = 136;
 
 // Right-side panel start x (leaves room for 7 tower buttons at 90px spacing starting at 155)
 const INFO_PANEL_X = 745;
@@ -225,9 +222,7 @@ export class GameScene extends Phaser.Scene {
     this.updateUI();
   }
 
-  // ============================================================
-  // MAP RENDERING
-  // ============================================================
+  // Map rendering
 
   private drawMap(): void {
     const grid = this.mapDef.grid;
@@ -324,9 +319,7 @@ export class GameScene extends Phaser.Scene {
     return -Math.PI / 2;                         // bottom edge → point up
   }
 
-  // ============================================================
-  // UI CREATION
-  // ============================================================
+  // UI creation
 
   private createUI(): void {
     const uiY = MAP_ROWS * TILE_SIZE;
@@ -590,15 +583,18 @@ export class GameScene extends Phaser.Scene {
     container.add([bg, text]);
 
     bg.on('pointerdown', onClick);
-    bg.on('pointerover', () => bg.setFillStyle(color + 0x222222));
+    bg.on('pointerover', () => {
+      const r = Math.min(0xff, ((color >> 16) & 0xff) + 0x22);
+      const g = Math.min(0xff, ((color >>  8) & 0xff) + 0x22);
+      const b = Math.min(0xff, ( color        & 0xff) + 0x22);
+      bg.setFillStyle((r << 16) | (g << 8) | b);
+    });
     bg.on('pointerout', () => bg.setFillStyle(color));
 
     return container;
   }
 
-  // ============================================================
-  // UI UPDATES
-  // ============================================================
+  // UI updates
 
   private updateUI(): void {
     this.goldText.setText(`Gold: ${this.gold}`);
@@ -616,9 +612,7 @@ export class GameScene extends Phaser.Scene {
     this.statusText.setText(status);
   }
 
-  // ============================================================
-  // INPUT HANDLING
-  // ============================================================
+  // Input handling
 
   private drawDashedCircle(
     g: Phaser.GameObjects.Graphics,
@@ -770,9 +764,7 @@ export class GameScene extends Phaser.Scene {
     this.clearTowerInfo();
   }
 
-  // ============================================================
-  // TOWER PLACEMENT
-  // ============================================================
+  // Tower placement
 
   private selectTowerDef(towerId: string): void {
     this.clearTowerSelection();
@@ -853,9 +845,7 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  // ============================================================
-  // WAVE MANAGEMENT
-  // ============================================================
+  // Wave management
 
   private startWave(): void {
     if (this.waveManager.waveInProgress) return;
@@ -900,9 +890,7 @@ export class GameScene extends Phaser.Scene {
     this.showWavePreview();
   }
 
-  // ============================================================
-  // GAME END
-  // ============================================================
+  // Game end
 
   private endGame(won: boolean): void {
     if (won) { this.gameWon = true; } else { this.gameOver = true; }
@@ -997,9 +985,7 @@ export class GameScene extends Phaser.Scene {
     restartBtn.setDepth(101);
   }
 
-  // ============================================================
-  // VISUAL FEEDBACK
-  // ============================================================
+  // Visual feedback
 
   private flashVignette(): void {
     const mapH = MAP_ROWS * TILE_SIZE;

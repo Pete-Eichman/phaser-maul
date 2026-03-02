@@ -80,7 +80,6 @@ export class Projectile {
     const moveDistance = this.speed * (delta / 1000);
 
     if (dist <= moveDistance + this.target.def.size) {
-      // HIT!
       this.onHit(allEnemies);
       this.alive = false;
     } else {
