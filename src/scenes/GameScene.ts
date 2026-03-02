@@ -14,6 +14,7 @@ import { Enemy, Waypoint } from '@/entities/Enemy';
 import { Projectile } from '@/entities/Projectile';
 import { WaveManager } from '@/systems/WaveManager';
 import { tileToPixel, pixelToTile } from '@/utils/helpers';
+import { computeScore, addLeaderboardEntry, LeaderboardEntry } from '@/utils/leaderboard';
 
 // UI panel height below the game map
 const UI_HEIGHT = 136;
@@ -25,6 +26,7 @@ export class GameScene extends Phaser.Scene {
   // Game state
   private gold: number = 0;
   private lives: number = 0;
+  private killCount: number = 0;
   private gameOver: boolean = false;
   private gameWon: boolean = false;
   private difficultyKey: DifficultyKey = 'normal';
@@ -76,6 +78,7 @@ export class GameScene extends Phaser.Scene {
     // Reset state so restarts start clean
     this.gameOver = false;
     this.gameWon = false;
+    this.killCount = 0;
     this.towers = [];
     this.enemies = [];
     this.projectiles = [];
@@ -156,6 +159,7 @@ export class GameScene extends Phaser.Scene {
           // First frame the enemy is dead — process rewards and kick off animation.
           // The enemy stays in the array until the tween finishes (dying=false).
           this.gold += enemy.reward;
+          this.killCount++;
           this.waveManager.onEnemyDied();
 
           // Splitter: spawn children at the parent's position and waypoint
@@ -901,20 +905,44 @@ export class GameScene extends Phaser.Scene {
   // ============================================================
 
   private endGame(won: boolean): void {
-    if (won) {
-      this.gameWon = true;
-      this.showEndScreen('VICTORY!', '#4caf50');
-    } else {
-      this.gameOver = true;
-      this.showEndScreen('GAME OVER', '#ff4444');
-    }
+    if (won) { this.gameWon = true; } else { this.gameOver = true; }
+
+    const wavesCompleted = this.waveManager.currentWave;
+    const score = computeScore({
+      killCount: this.killCount,
+      wavesCompleted,
+      livesRemaining: this.lives,
+      won,
+      difficulty: this.difficultyKey,
+    });
+
+    const entry: LeaderboardEntry = {
+      score,
+      difficulty: this.difficultyKey,
+      mapId: this.mapId,
+      won,
+      wavesCompleted,
+      killCount: this.killCount,
+      livesRemaining: this.lives,
+      timestamp: Date.now(),
+    };
+
+    const { entries, rank } = addLeaderboardEntry(entry);
+    this.showEndScreen(won ? 'VICTORY!' : 'GAME OVER', won ? '#4caf50' : '#ff4444', score, rank, entries);
   }
 
-  private showEndScreen(message: string, color: string): void {
+  private showEndScreen(
+    message: string,
+    color: string,
+    score: number,
+    rank: number,
+    topEntries: LeaderboardEntry[],
+  ): void {
     const mapH = MAP_ROWS * TILE_SIZE;
+    const cx = GAME_WIDTH / 2;
+    const midY = mapH / 2;
 
-    // Fade in from black — the overlay and text appear to emerge from darkness
-    const blackout = this.add.rectangle(GAME_WIDTH / 2, mapH / 2, GAME_WIDTH, mapH, 0x000000);
+    const blackout = this.add.rectangle(cx, midY, GAME_WIDTH, mapH, 0x000000);
     blackout.setDepth(99);
     this.tweens.add({
       targets: blackout,
@@ -925,31 +953,44 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => blackout.destroy(),
     });
 
-    const overlay = this.add.rectangle(
-      GAME_WIDTH / 2, mapH / 2,
-      GAME_WIDTH, mapH,
-      0x000000, 0.6,
-    );
+    const overlay = this.add.rectangle(cx, midY, GAME_WIDTH, mapH, 0x000000, 0.6);
     overlay.setDepth(100);
 
-    const text = this.add.text(
-      GAME_WIDTH / 2, mapH / 2 - 20,
-      message,
-      { fontSize: '48px', color, fontStyle: 'bold' },
-    );
-    text.setOrigin(0.5);
-    text.setDepth(101);
+    // Main message
+    this.add.text(cx, midY - 80, message, {
+      fontSize: '48px', color, fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101);
 
-    const subText = this.add.text(
-      GAME_WIDTH / 2, mapH / 2 + 30,
-      `Waves Survived: ${this.waveManager.currentWave} / ${this.waveManager.getTotalWaves()}`,
-      { fontSize: '18px', color: '#cccccc' },
-    );
-    subText.setOrigin(0.5);
-    subText.setDepth(101);
+    // Score
+    this.add.text(cx, midY - 28, `Score: ${score.toLocaleString()}`, {
+      fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101);
 
+    // Rank badge
+    if (rank > 0) {
+      this.add.text(cx, midY - 4, `#${rank} of all time!`, {
+        fontSize: '14px', color: COLORS.ui.gold,
+      }).setOrigin(0.5).setDepth(101);
+    }
+
+    // Leaderboard header
+    this.add.text(cx, midY + 20, '— Top Scores —', {
+      fontSize: '11px', color: '#888888',
+    }).setOrigin(0.5).setDepth(101);
+
+    // Top entries (up to 5)
+    const totalWaves = this.waveManager.getTotalWaves();
+    const diffLabels: Record<string, string> = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
+    topEntries.slice(0, 5).forEach((e, i) => {
+      const label = `#${i + 1}  ${diffLabels[e.difficulty]}  ${e.wavesCompleted}/${totalWaves}  ${e.won ? '✓' : '✗'}  ${e.score.toLocaleString()}`;
+      this.add.text(cx, midY + 36 + i * 16, label, {
+        fontSize: '11px', color: '#cccccc',
+      }).setOrigin(0.5).setDepth(101);
+    });
+
+    // Play Again button, shifted down to clear the leaderboard rows
     const restartBtn = this.createButton(
-      GAME_WIDTH / 2, mapH / 2 + 80,
+      cx, midY + 140,
       160, 40, 'Play Again', 0x4caf50,
       () => this.scene.restart({ difficulty: this.difficultyKey, mapId: this.mapId }),
     );
