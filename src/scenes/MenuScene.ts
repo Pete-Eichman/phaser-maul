@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, COLORS, DIFFICULTY_SETTINGS, DifficultyKey } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID } from '@/config/maps';
+import { loadLeaderboard } from '@/utils/leaderboard';
 
 const UI_HEIGHT = 136;
 const CANVAS_HEIGHT = GAME_HEIGHT + UI_HEIGHT;
@@ -24,6 +25,7 @@ export class MenuScene extends Phaser.Scene {
       .setStrokeStyle(1, 0x243050);
 
     this.buildTitle(cx);
+    this.buildBestScore(cx);
     this.buildStartButton(cx);
     this.buildMapSelector(cx);
     this.buildDifficultySelector(cx);
@@ -52,6 +54,16 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(cx, 175, 'A tower defense game', {
       fontSize: '17px',
       color: '#7a8eaa',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+  }
+
+  private buildBestScore(cx: number): void {
+    const entries = loadLeaderboard();
+    if (entries.length === 0) return;
+    this.add.text(cx, 196, `Best: ${entries[0].score.toLocaleString()}`, {
+      fontSize: '13px',
+      color: COLORS.ui.gold,
       fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
   }
