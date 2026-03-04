@@ -4,7 +4,6 @@ import {
   COLORS, STARTING_GOLD, STARTING_LIVES, WINTERMAUL_STARTING_GOLD,
   TOWER_DEFS, TowerDef,
   DIFFICULTY_SETTINGS, DifficultyKey, ENEMY_DEFS, EnemyDef,
-  WAVE_DEFS,
 } from '@/config/gameConfig';
 import { MAP_DEFS, DEFAULT_MAP_ID, MapDef } from '@/config/maps';
 import { findPath } from '@/systems/Pathfinder';
@@ -20,9 +19,14 @@ import {
   sfxEnemyDie, sfxLifeLost, sfxWaveStart, sfxVictory, sfxDefeat,
   isMuted, toggleMute,
 } from '@/utils/sound';
-
-// Right-side panel start x (leaves room for 7 tower buttons at 90px spacing starting at 155)
-const INFO_PANEL_X = 745;
+import { drawMap, drawDashedCircle } from '@/ui/mapRenderer';
+import { showEndScreen, showWaveBanner, flashVignette, showFloatingText } from '@/ui/endScreen';
+import {
+  INFO_PANEL_X,
+  InfoPanelRefs, TowerInfoCallbacks,
+  showInfoPanel, showWavePreview, clearInfoPanel,
+  showTowerInfo, clearTowerInfo,
+} from '@/ui/infoPanel';
 
 const TOWER_SFX: Record<string, () => void> = {
   arrow:     sfxArrow,
@@ -65,19 +69,24 @@ export class GameScene extends Phaser.Scene {
   private livesText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
-  private infoPanelText!: Phaser.GameObjects.Text;
-  private infoPanelGraphics!: Phaser.GameObjects.Graphics;
   private towerButtons: Phaser.GameObjects.Container[] = [];
   private startWaveButton!: Phaser.GameObjects.Container;
-  private upgradeButton: Phaser.GameObjects.Container | null = null;
-  private sellButton: Phaser.GameObjects.Container | null = null;
-  private targetModeButton: Phaser.GameObjects.Container | null = null;
-  private towerNameText: Phaser.GameObjects.Text | null = null;
-  private convertPanelItems: Phaser.GameObjects.GameObject[] = [];
   private selectedTower: Tower | null = null;
   private muteButton!: Phaser.GameObjects.Container;
   private speedButton!: Phaser.GameObjects.Container;
   private speedButtonText!: Phaser.GameObjects.Text;
+
+  // Info panel — mutable refs owned and mutated by infoPanel.ts functions
+  private panelRefs: InfoPanelRefs = {
+    graphics: null as unknown as Phaser.GameObjects.Graphics,
+    text: null as unknown as Phaser.GameObjects.Text,
+    upgradeButton: null,
+    sellButton: null,
+    targetModeButton: null,
+    towerNameText: null,
+    convertPanelItems: [],
+  };
+  private infoPanelX: number = INFO_PANEL_X;
 
   // Pause / speed state
   private paused: boolean = false;
@@ -116,12 +125,14 @@ export class GameScene extends Phaser.Scene {
     this.projectiles = [];
     this.selectedTowerDef = null;
     this.selectedTower = null;
-    this.upgradeButton = null;
-    this.sellButton = null;
-    this.targetModeButton = null;
-    this.towerNameText = null;
     this.towerButtons = [];
-    this.convertPanelItems = [];
+
+    // Reset panel refs (graphics/text are recreated in create())
+    this.panelRefs.upgradeButton = null;
+    this.panelRefs.sellButton = null;
+    this.panelRefs.targetModeButton = null;
+    this.panelRefs.towerNameText = null;
+    this.panelRefs.convertPanelItems = [];
   }
 
   create(): void {
@@ -134,7 +145,7 @@ export class GameScene extends Phaser.Scene {
     // Cell size = 2 tiles; balances bucket count vs enemies-per-bucket at typical wave sizes
     this.spatialHash = new SpatialHash<Enemy>(TILE_SIZE * 2, (e) => ({ x: e.sprite.x, y: e.sprite.y }));
 
-    this.drawMap();
+    drawMap(this, this.mapDef, this.waypoints);
     this.game.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.hoverGraphics = this.add.graphics();
@@ -151,7 +162,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.createUI();
-    this.showWavePreview();
+    showWavePreview(this, this.panelRefs, this.waveManager, this.infoPanelX);
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.onPointerMove(pointer);
@@ -190,7 +201,7 @@ export class GameScene extends Phaser.Scene {
         if (enemy.reachedEnd) {
           this.lives--;
           sfxLifeLost();
-          this.flashVignette();
+          flashVignette(this);
           this.waveManager.onEnemyReachedEnd();
           enemy.destroy();
           this.enemies.splice(i, 1);
@@ -244,9 +255,9 @@ export class GameScene extends Phaser.Scene {
         projectile.onDamageDealt = (x, y, dmg, label) => {
           const offsetX = (Math.random() - 0.5) * 16;
           if (label) {
-            this.showFloatingText(x + offsetX, y - 10, label, '#aaaaaa', '11px', 700);
+            showFloatingText(this, x + offsetX, y - 10, label, '#aaaaaa', '11px', 700);
           } else {
-            this.showFloatingText(x + offsetX, y - 10, String(dmg), '#ffffff', '12px', 800);
+            showFloatingText(this, x + offsetX, y - 10, String(dmg), '#ffffff', '12px', 800);
           }
         };
         this.projectiles.push(projectile);
@@ -268,136 +279,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateUI();
-  }
-
-  // Map rendering
-
-  private drawMap(): void {
-    const grid = this.mapDef.grid;
-
-    const detailsG = this.add.graphics();
-    detailsG.setDepth(0.5);
-
-    for (let row = 0; row < MAP_ROWS; row++) {
-      for (let col = 0; col < MAP_COLS; col++) {
-        const tile = grid[row][col];
-        const x = col * TILE_SIZE;
-        const y = row * TILE_SIZE;
-
-        let color: number;
-        if (tile === 1 || tile === 2) {
-          color = COLORS.path;
-        } else {
-          color = (row + col) % 2 === 0 ? COLORS.grass : COLORS.grassAlt;
-        }
-
-        const rect = this.add.rectangle(
-          x + TILE_SIZE / 2,
-          y + TILE_SIZE / 2,
-          TILE_SIZE,
-          TILE_SIZE,
-          color,
-        );
-        rect.setDepth(0);
-
-        // Subtle grass detail marks — deterministic from tile position
-        if (tile === 0) {
-          const seed = (row * 31 + col * 17) % 100;
-          if (seed >= 50) {
-            detailsG.fillStyle(0x1e3d28, 0.55);
-            const ox1 = (seed * 7) % (TILE_SIZE - 8) + 3;
-            const oy1 = (seed * 13) % (TILE_SIZE - 8) + 3;
-            detailsG.fillRect(x + ox1, y + oy1, (seed % 3) + 2, (seed % 2) + 2);
-            if (seed >= 75) {
-              const ox2 = (seed * 11) % (TILE_SIZE - 8) + 3;
-              const oy2 = (seed * 19) % (TILE_SIZE - 8) + 3;
-              detailsG.fillRect(x + ox2, y + oy2, (seed % 2) + 2, (seed % 3) + 2);
-            }
-          }
-        }
-      }
-    }
-
-    // Path edge highlights — 2px lines where path tiles meet grass or map boundary
-    const edgeG = this.add.graphics();
-    edgeG.setDepth(1);
-    for (let row = 0; row < MAP_ROWS; row++) {
-      for (let col = 0; col < MAP_COLS; col++) {
-        const tile = grid[row][col];
-        if (tile !== 1 && tile !== 2) continue;
-        const x = col * TILE_SIZE;
-        const y = row * TILE_SIZE;
-        edgeG.lineStyle(2, COLORS.pathEdge, 0.65);
-        if (row === 0 || grid[row - 1][col] === 0) {
-          edgeG.beginPath();
-          edgeG.moveTo(x, y);
-          edgeG.lineTo(x + TILE_SIZE, y);
-          edgeG.strokePath();
-        }
-        if (row === MAP_ROWS - 1 || grid[row + 1][col] === 0) {
-          edgeG.beginPath();
-          edgeG.moveTo(x, y + TILE_SIZE);
-          edgeG.lineTo(x + TILE_SIZE, y + TILE_SIZE);
-          edgeG.strokePath();
-        }
-        if (col === 0 || grid[row][col - 1] === 0) {
-          edgeG.beginPath();
-          edgeG.moveTo(x, y);
-          edgeG.lineTo(x, y + TILE_SIZE);
-          edgeG.strokePath();
-        }
-        if (col === MAP_COLS - 1 || grid[row][col + 1] === 0) {
-          edgeG.beginPath();
-          edgeG.moveTo(x + TILE_SIZE, y);
-          edgeG.lineTo(x + TILE_SIZE, y + TILE_SIZE);
-          edgeG.strokePath();
-        }
-      }
-    }
-
-    this.createMapIndicators();
-  }
-
-  private createMapIndicators(): void {
-    if (this.waypoints.length < 2) return;
-
-    const spawnWp = this.waypoints[0];
-    const exitWp  = this.waypoints[this.waypoints.length - 1];
-
-    const spawnAngle = this.edgeAngle(spawnWp.x, spawnWp.y);
-    const exitAngle  = this.edgeAngle(exitWp.x,  exitWp.y);
-
-    const spawnPos = tileToPixel(spawnWp.x, spawnWp.y);
-    const exitPos  = tileToPixel(exitWp.x,  exitWp.y);
-
-    const makeIndicator = (cx: number, cy: number, angle: number, color: number): void => {
-      const g = this.add.graphics();
-      g.setDepth(2);
-      g.fillStyle(color, 0.9);
-      g.fillTriangle(13, 0, -5, -8, -5, 8);
-      g.setPosition(cx, cy);
-      g.setRotation(angle);
-      this.tweens.add({
-        targets: g,
-        scaleX: 1.2,
-        scaleY: 1.2,
-        duration: 750,
-        ease: 'Sine.easeInOut',
-        yoyo: true,
-        repeat: -1,
-      });
-    };
-
-    makeIndicator(spawnPos.x, spawnPos.y, spawnAngle, 0x44ff88);
-    makeIndicator(exitPos.x,  exitPos.y,  exitAngle,  0xff5555);
-  }
-
-  // Returns the angle (radians) pointing inward from whichever map edge a tile sits on.
-  private edgeAngle(col: number, row: number): number {
-    if (col === 0)           return 0;          // left edge  → point right
-    if (col === MAP_COLS - 1) return Math.PI;   // right edge → point left
-    if (row === 0)           return Math.PI / 2; // top edge   → point down
-    return -Math.PI / 2;                         // bottom edge → point up
   }
 
   // UI creation
@@ -453,12 +334,12 @@ export class GameScene extends Phaser.Scene {
     // Vertical separator between tower buttons and info panel
     const infoDivider = this.add.graphics();
     infoDivider.lineStyle(1, 0x333355, 0.8);
-    infoDivider.lineBetween(INFO_PANEL_X, uiY + 52, INFO_PANEL_X, uiY + 132);
+    infoDivider.lineBetween(this.infoPanelX, uiY + 52, this.infoPanelX, uiY + 132);
     infoDivider.setDepth(51);
 
     // Info panel background (right side of row 2)
-    const infoPanelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
-    const infoPanelWidth = GAME_WIDTH - INFO_PANEL_X - 4;
+    const infoPanelCenterX = (this.infoPanelX + GAME_WIDTH) / 2;
+    const infoPanelWidth = GAME_WIDTH - this.infoPanelX - 4;
     const infoPanelBg = this.add.rectangle(
       infoPanelCenterX, uiY + 92,
       infoPanelWidth, 76,
@@ -467,15 +348,15 @@ export class GameScene extends Phaser.Scene {
     infoPanelBg.setStrokeStyle(1, 0x252545);
     infoPanelBg.setDepth(51);
 
-    this.infoPanelText = this.add.text(INFO_PANEL_X + 8, uiY + 56, '', {
+    this.panelRefs.text = this.add.text(this.infoPanelX + 8, uiY + 56, '', {
       fontSize: '11px',
       color: COLORS.ui.text,
       lineSpacing: 3,
     });
-    this.infoPanelText.setDepth(52);
+    this.panelRefs.text.setDepth(52);
 
-    this.infoPanelGraphics = this.add.graphics();
-    this.infoPanelGraphics.setDepth(53);
+    this.panelRefs.graphics = this.add.graphics();
+    this.panelRefs.graphics.setDepth(53);
 
     const towerIds = this.isOpenField
       ? ['arrow', 'cannon', 'ice', 'fire', 'sniper', 'lightning', 'poison', 'wall']
@@ -605,74 +486,14 @@ export class GameScene extends Phaser.Scene {
     bg.on('pointerdown', () => this.selectTowerDef(def.id));
     bg.on('pointerover', () => {
       bg.setFillStyle(0x3a3a5a);
-      this.showInfoPanel(def);
+      showInfoPanel(this.panelRefs, def);
     });
     bg.on('pointerout', () => {
       bg.setFillStyle(this.selectedTowerDef?.id === def.id ? 0x3a3a5a : 0x2a2a4a);
-      this.clearInfoPanel();
+      clearInfoPanel(this.panelRefs, this.waveManager, this, this.infoPanelX);
     });
 
     return container;
-  }
-
-  private showInfoPanel(def: TowerDef): void {
-    this.infoPanelGraphics.clear();
-    const stats = def.levels[0];
-    const isPoisonAura = def.id === 'poison';
-
-    const line2 = isPoisonAura
-      ? `DOT: ${stats.damage}/s  Rate: ${stats.fireRate}/s`
-      : `Dmg: ${stats.damage}  Rate: ${stats.fireRate}/s`;
-
-    const line3 = isPoisonAura
-      ? `Range: ${stats.range}`
-      : `Range: ${stats.range}  DPS: ${(stats.damage * stats.fireRate).toFixed(1)}`;
-
-    const detail = def.special ?? def.description;
-
-    this.infoPanelText.setText(
-      `${def.name}  ${def.cost}g\n${line2}\n${line3}\n${detail}`,
-    );
-  }
-
-  private showWavePreview(): void {
-    this.infoPanelGraphics.clear();
-
-    const nextWaveIdx = this.waveManager.currentWave;
-    if (nextWaveIdx >= WAVE_DEFS.length) {
-      this.infoPanelText.setText('');
-      return;
-    }
-
-    const waveDef = WAVE_DEFS[nextWaveIdx];
-    const totalEnemies = waveDef.groups.reduce((sum, g) => sum + g.count, 0);
-    const uiY = MAP_ROWS * TILE_SIZE;
-    // Approximate line height for 11px font + 3px lineSpacing
-    const lineH = 16;
-    const circleX = INFO_PANEL_X + 11;
-    const firstGroupY = uiY + 56 + lineH; // one line below the header
-
-    const textLines = [`Wave ${nextWaveIdx + 1}  ·  ${totalEnemies} enemies`];
-
-    waveDef.groups.forEach((group, i) => {
-      const enemyDef = ENEMY_DEFS[group.enemyType];
-      if (!enemyDef) return;
-      const circleY = firstGroupY + i * lineH + Math.floor(lineH / 2) - 2;
-      this.infoPanelGraphics.fillStyle(enemyDef.color, 1);
-      this.infoPanelGraphics.fillCircle(circleX, circleY, 4);
-      textLines.push(`      ×${group.count}  ${enemyDef.name}`);
-    });
-
-    this.infoPanelText.setText(textLines.join('\n'));
-  }
-
-  private clearInfoPanel(): void {
-    if (!this.waveManager.waveInProgress && !this.waveManager.allWavesComplete) {
-      this.showWavePreview();
-    } else {
-      this.infoPanelText.setText('');
-      this.infoPanelGraphics.clear();
-    }
   }
 
   private createButton(
@@ -811,22 +632,6 @@ export class GameScene extends Phaser.Scene {
 
   // Input handling
 
-  private drawDashedCircle(
-    g: Phaser.GameObjects.Graphics,
-    cx: number, cy: number, radius: number,
-    color: number, alpha: number,
-  ): void {
-    const dashArc = Math.PI / 12;  // 15° dash
-    const gapArc  = Math.PI / 18;  // 10° gap
-    const step = dashArc + gapArc;
-    g.lineStyle(1, color, alpha);
-    for (let a = 0; a < Math.PI * 2; a += step) {
-      g.beginPath();
-      g.arc(cx, cy, radius, a, Math.min(a + dashArc, Math.PI * 2));
-      g.strokePath();
-    }
-  }
-
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     this.hoverGraphics.clear();
 
@@ -850,7 +655,7 @@ export class GameScene extends Phaser.Scene {
       const range = this.selectedTowerDef.levels[0].range;
       this.hoverGraphics.fillStyle(0xffffff, 0.05);
       this.hoverGraphics.fillCircle(center.x, center.y, range);
-      this.drawDashedCircle(this.hoverGraphics, center.x, center.y, range, 0xffffff, 0.45);
+      drawDashedCircle(this.hoverGraphics, center.x, center.y, range, 0xffffff, 0.45);
     }
   }
 
@@ -873,188 +678,7 @@ export class GameScene extends Phaser.Scene {
     if (tower) {
       this.selectedTower = tower;
       tower.showRange();
-      this.showTowerInfo(tower);
-    }
-  }
-
-  private showTowerInfo(tower: Tower): void {
-    if (tower.def.id === 'wall') { this.showWallConvertPanel(tower); return; }
-
-    this.clearTowerInfo();
-
-    const uiY = MAP_ROWS * TILE_SIZE;
-    const x = GAME_WIDTH - 80;
-    const panelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
-
-    // Tower name header — identifies which tower is selected
-    const colorHex = `#${tower.def.color.toString(16).padStart(6, '0')}`;
-    this.towerNameText = this.add.text(panelCenterX, uiY + 58, tower.def.name, {
-      fontSize: '12px',
-      fontStyle: 'bold',
-      fontFamily: 'Arial, sans-serif',
-      color: colorHex,
-    });
-    this.towerNameText.setOrigin(0.5, 0.5);
-    this.towerNameText.setDepth(52);
-
-    // Targeting mode toggle (not shown for poison or wall — neither fires projectiles)
-    if (tower.def.id !== 'poison' && tower.def.id !== 'wall') {
-      const modeLabel = tower.targetMode.charAt(0).toUpperCase() + tower.targetMode.slice(1);
-      this.targetModeButton = this.createButton(
-        x, uiY + 75, 130, 20,
-        `Target: ${modeLabel}`,
-        0x1a1a3a,
-        () => {
-          tower.cycleTargetMode();
-          this.clearTowerInfo();
-          this.showTowerInfo(tower);
-        },
-      );
-    }
-
-    if (tower.canUpgrade()) {
-      const cost = tower.getUpgradeCost();
-      this.upgradeButton = this.createButton(
-        x, uiY + 98, 130, 24,
-        `Upgrade (${cost}g)`,
-        this.gold >= cost ? 0x2196f3 : 0x555555,
-        () => {
-          if (this.gold >= cost) {
-            this.gold -= cost;
-            tower.upgrade();
-            this.clearTowerInfo();
-            this.showTowerInfo(tower);
-          }
-        },
-      );
-    }
-
-    const sellValue = Math.floor(tower.def.cost * 0.6);
-    this.sellButton = this.createButton(
-      x, uiY + 120, 130, 20,
-      `Sell (${sellValue}g)`,
-      0x666666,
-      () => {
-        this.gold += sellValue;
-        const idx = this.towers.indexOf(tower);
-        if (idx !== -1) this.towers.splice(idx, 1);
-        if (this.isOpenField) {
-          this.pathGrid[tower.tileY][tower.tileX] = 1;
-          const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
-          this.waypoints = newWaypoints;
-          this.waveManager.updateWaypoints(newWaypoints);
-          for (const enemy of this.enemies) {
-            if (enemy.alive) enemy.repath(newWaypoints);
-          }
-        }
-        this.clearTowerSelection();
-        tower.startSellAnimation(() => tower.destroy());
-      },
-    );
-  }
-
-  private showWallConvertPanel(wall: Tower): void {
-    this.clearTowerInfo();
-
-    const uiY = MAP_ROWS * TILE_SIZE;
-    const panelCenterX = (INFO_PANEL_X + GAME_WIDTH) / 2;
-    const leftColX = INFO_PANEL_X + 52;
-    const rightColX = INFO_PANEL_X + 157;
-    const btnW = 94;
-    const btnH = 14;
-    const rowYs = [uiY + 82, uiY + 97, uiY + 112, uiY + 127];
-
-    // WALL header — stored in towerNameText for cleanup
-    const colorHex = `#${wall.def.color.toString(16).padStart(6, '0')}`;
-    this.towerNameText = this.add.text(panelCenterX, uiY + 60, 'WALL', {
-      fontSize: '12px',
-      fontStyle: 'bold',
-      fontFamily: 'Arial, sans-serif',
-      color: colorHex,
-    }).setOrigin(0.5).setDepth(52);
-
-    // "Convert to:" label
-    const convertLabel = this.add.text(panelCenterX, uiY + 71, 'Convert to:', {
-      fontSize: '11px',
-      color: '#777788',
-      fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5).setDepth(52);
-    this.convertPanelItems.push(convertLabel);
-
-    // Two-column grid: left ids and right ids per row
-    const leftIds  = ['arrow',  'cannon',    'ice',    'fire'];
-    const rightIds = ['sniper', 'lightning', 'poison', ''];
-
-    leftIds.forEach((id, r) => {
-      this.makeConvertButton(leftColX, rowYs[r], btnW, btnH, id, wall);
-    });
-    rightIds.forEach((id, r) => {
-      if (id) this.makeConvertButton(rightColX, rowYs[r], btnW, btnH, id, wall);
-    });
-
-    // Sell button (right col, row 4) — stored in sellButton for cleanup
-    const sellValue = Math.floor(wall.def.cost * 0.6);
-    const sellBg = this.add.rectangle(rightColX, rowYs[3], btnW, btnH, 0x555555);
-    sellBg.setStrokeStyle(1, 0x777777);
-    sellBg.setDepth(52);
-    sellBg.setInteractive({ useHandCursor: true });
-    this.convertPanelItems.push(sellBg);
-
-    const sellText = this.add.text(rightColX, rowYs[3], `Sell ${sellValue}g`, {
-      fontSize: '10px',
-      color: '#cccccc',
-      fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5).setDepth(52);
-    this.convertPanelItems.push(sellText);
-
-    sellBg.on('pointerdown', () => {
-      this.gold += sellValue;
-      const idx = this.towers.indexOf(wall);
-      if (idx !== -1) this.towers.splice(idx, 1);
-      if (this.isOpenField) {
-        this.pathGrid[wall.tileY][wall.tileX] = 1;
-        const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
-        this.waypoints = newWaypoints;
-        this.waveManager.updateWaypoints(newWaypoints);
-        for (const enemy of this.enemies) {
-          if (enemy.alive) enemy.repath(newWaypoints);
-        }
-      }
-      this.clearTowerSelection();
-      wall.startSellAnimation(() => wall.destroy());
-    });
-    sellBg.on('pointerover', () => sellBg.setFillStyle(0x777777));
-    sellBg.on('pointerout',  () => sellBg.setFillStyle(0x555555));
-  }
-
-  private makeConvertButton(
-    x: number, y: number, width: number, height: number,
-    defId: string, wall: Tower,
-  ): void {
-    const def = TOWER_DEFS[defId];
-    const canAfford = this.gold >= def.cost;
-    const fillColor = canAfford ? 0x2a2a4a : 0x1a1a2a;
-    const strokeColor = canAfford ? 0x444466 : 0x222233;
-    const textColor = canAfford ? '#cccccc' : '#555566';
-
-    const bg = this.add.rectangle(x, y, width, height, fillColor);
-    bg.setStrokeStyle(1, strokeColor);
-    bg.setDepth(52);
-    this.convertPanelItems.push(bg);
-
-    const shortName = def.name.replace(' Tower', '');
-    const label = this.add.text(x, y, `${shortName} ${def.cost}g`, {
-      fontSize: '10px',
-      color: textColor,
-      fontFamily: 'Arial, sans-serif',
-    }).setOrigin(0.5).setDepth(52);
-    this.convertPanelItems.push(label);
-
-    if (canAfford) {
-      bg.setInteractive({ useHandCursor: true });
-      bg.on('pointerdown', () => this.convertWallToTower(wall, defId));
-      bg.on('pointerover', () => bg.setFillStyle(0x3a3a5a));
-      bg.on('pointerout',  () => bg.setFillStyle(fillColor));
+      showTowerInfo(this, this.panelRefs, tower, this.buildTowerInfoCallbacks());
     }
   }
 
@@ -1063,7 +687,7 @@ export class GameScene extends Phaser.Scene {
     if (this.gold < def.cost) return;
 
     this.gold -= def.cost;
-    this.clearTowerInfo();
+    clearTowerInfo(this.panelRefs);
     this.selectedTower = null;
 
     const { tileX, tileY } = wall;
@@ -1078,8 +702,8 @@ export class GameScene extends Phaser.Scene {
       if (pointer.rightButtonDown()) {
         if (this.selectedTower === newTower && newTower.def.id !== 'poison' && newTower.def.id !== 'wall') {
           newTower.cycleTargetMode();
-          this.clearTowerInfo();
-          this.showTowerInfo(newTower);
+          clearTowerInfo(this.panelRefs);
+          showTowerInfo(this, this.panelRefs, newTower, this.buildTowerInfoCallbacks());
         }
         pointer.event.stopPropagation();
       } else if (!this.selectedTowerDef) {
@@ -1087,7 +711,7 @@ export class GameScene extends Phaser.Scene {
         this.clearTowerSelection();
         this.selectedTower = newTower;
         newTower.showRange();
-        this.showTowerInfo(newTower);
+        showTowerInfo(this, this.panelRefs, newTower, this.buildTowerInfoCallbacks());
       }
     });
 
@@ -1105,25 +729,12 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private clearTowerInfo(): void {
-    this.upgradeButton?.destroy();
-    this.upgradeButton = null;
-    this.sellButton?.destroy();
-    this.sellButton = null;
-    this.targetModeButton?.destroy();
-    this.targetModeButton = null;
-    this.towerNameText?.destroy();
-    this.towerNameText = null;
-    for (const item of this.convertPanelItems) item.destroy();
-    this.convertPanelItems = [];
-  }
-
   private clearTowerSelection(): void {
     if (this.selectedTower) {
       this.selectedTower.hideRange();
       this.selectedTower = null;
     }
-    this.clearTowerInfo();
+    clearTowerInfo(this.panelRefs);
   }
 
   // Tower placement
@@ -1166,7 +777,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.canBuildAt(tile.x, tile.y)) return;
 
     if (this.gold < this.selectedTowerDef.cost) {
-      this.showFloatingText(pointer.x, pointer.y, 'Not enough gold!', '#ff4444');
+      showFloatingText(this, pointer.x, pointer.y, 'Not enough gold!', '#ff4444');
       return;
     }
 
@@ -1181,8 +792,8 @@ export class GameScene extends Phaser.Scene {
       if (pointer.rightButtonDown()) {
         if (this.selectedTower === tower && tower.def.id !== 'poison' && tower.def.id !== 'wall') {
           tower.cycleTargetMode();
-          this.clearTowerInfo();
-          this.showTowerInfo(tower);
+          clearTowerInfo(this.panelRefs);
+          showTowerInfo(this, this.panelRefs, tower, this.buildTowerInfoCallbacks());
         }
         pointer.event.stopPropagation();
       } else if (!this.selectedTowerDef) {
@@ -1190,7 +801,7 @@ export class GameScene extends Phaser.Scene {
         this.clearTowerSelection();
         this.selectedTower = tower;
         tower.showRange();
-        this.showTowerInfo(tower);
+        showTowerInfo(this, this.panelRefs, tower, this.buildTowerInfoCallbacks());
       }
     });
 
@@ -1217,7 +828,8 @@ export class GameScene extends Phaser.Scene {
       ease: 'Back.easeOut',
     });
 
-    this.showFloatingText(
+    showFloatingText(
+      this,
       center.x, center.y - 20,
       `-${this.selectedTowerDef.cost}g`,
       COLORS.ui.gold,
@@ -1232,42 +844,20 @@ export class GameScene extends Phaser.Scene {
     const waveNumber = this.waveManager.currentWave + 1;
     sfxWaveStart();
     this.waveManager.startNextWave();
-    this.showWaveBanner(waveNumber);
-    this.infoPanelText.setText('');
-    this.infoPanelGraphics.clear();
-  }
-
-  private showWaveBanner(waveNumber: number): void {
-    const mapH = MAP_ROWS * TILE_SIZE;
-    const banner = this.add.text(GAME_WIDTH / 2, mapH / 2, `Wave ${waveNumber}`, {
-      fontSize: '52px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    banner.setOrigin(0.5);
-    banner.setDepth(100);
-    banner.setAlpha(0);
-    this.tweens.add({
-      targets: banner,
-      alpha: 1,
-      duration: 200,
-      ease: 'Power2',
-      yoyo: true,
-      hold: 600,
-      onComplete: () => banner.destroy(),
-    });
+    showWaveBanner(this, waveNumber);
+    this.panelRefs.text.setText('');
+    this.panelRefs.graphics.clear();
   }
 
   private onWaveComplete(reward: number): void {
     this.gold += reward;
-    this.showFloatingText(
+    showFloatingText(
+      this,
       GAME_WIDTH / 2, GAME_HEIGHT / 2 - 40,
       `Wave Complete! +${reward}g`,
       COLORS.ui.gold,
     );
-    this.showWavePreview();
+    showWavePreview(this, this.panelRefs, this.waveManager, this.infoPanelX);
   }
 
   // Game end
@@ -1296,113 +886,51 @@ export class GameScene extends Phaser.Scene {
     };
 
     const { entries, rank } = addLeaderboardEntry(entry);
-    this.showEndScreen(won ? 'VICTORY!' : 'GAME OVER', won ? '#4caf50' : '#ff4444', score, rank, entries);
-  }
-
-  private showEndScreen(
-    message: string,
-    color: string,
-    score: number,
-    rank: number,
-    topEntries: LeaderboardEntry[],
-  ): void {
-    const mapH = MAP_ROWS * TILE_SIZE;
-    const cx = GAME_WIDTH / 2;
-    const midY = mapH / 2;
-
-    const blackout = this.add.rectangle(cx, midY, GAME_WIDTH, mapH, 0x000000);
-    blackout.setDepth(99);
-    this.tweens.add({
-      targets: blackout,
-      alpha: 0,
-      duration: 600,
-      delay: 100,
-      ease: 'Power2',
-      onComplete: () => blackout.destroy(),
-    });
-
-    const overlay = this.add.rectangle(cx, midY, GAME_WIDTH, mapH, 0x000000, 0.6);
-    overlay.setDepth(100);
-
-    // Main message
-    this.add.text(cx, midY - 80, message, {
-      fontSize: '48px', color, fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(101);
-
-    // Score
-    this.add.text(cx, midY - 28, `Score: ${score.toLocaleString()}`, {
-      fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(101);
-
-    // Rank badge
-    if (rank > 0) {
-      this.add.text(cx, midY - 4, `#${rank} of all time!`, {
-        fontSize: '14px', color: COLORS.ui.gold,
-      }).setOrigin(0.5).setDepth(101);
-    }
-
-    // Leaderboard header
-    this.add.text(cx, midY + 20, '— Top Scores —', {
-      fontSize: '11px', color: '#888888',
-    }).setOrigin(0.5).setDepth(101);
-
-    // Top entries (up to 5)
-    const totalWaves = this.waveManager.getTotalWaves();
-    const diffLabels: Record<string, string> = { easy: 'Easy', normal: 'Normal', hard: 'Hard' };
-    topEntries.slice(0, 5).forEach((e, i) => {
-      const label = `#${i + 1}  ${diffLabels[e.difficulty]}  ${e.wavesCompleted}/${totalWaves}  ${e.won ? '✓' : '✗'}  ${e.score.toLocaleString()}`;
-      this.add.text(cx, midY + 36 + i * 16, label, {
-        fontSize: '11px', color: '#cccccc',
-      }).setOrigin(0.5).setDepth(101);
-    });
-
-    // Play Again button, shifted down to clear the leaderboard rows
-    const restartBtn = this.createButton(
-      cx, midY + 140,
-      160, 40, 'Play Again', 0x4caf50,
-      () => this.scene.restart({ difficulty: this.difficultyKey, mapId: this.mapId }),
-    );
-    restartBtn.setDepth(101);
-  }
-
-  // Visual feedback
-
-  private flashVignette(): void {
-    const mapH = MAP_ROWS * TILE_SIZE;
-    const vignette = this.add.rectangle(GAME_WIDTH / 2, mapH / 2, GAME_WIDTH, mapH, 0xff0000, 0.28);
-    vignette.setDepth(99);
-    this.tweens.add({
-      targets: vignette,
-      alpha: 0,
-      duration: 350,
-      ease: 'Power2',
-      onComplete: () => vignette.destroy(),
+    showEndScreen(this, {
+      message: won ? 'VICTORY!' : 'GAME OVER',
+      color: won ? '#4caf50' : '#ff4444',
+      score,
+      rank,
+      topEntries: entries,
+      totalWaves: this.waveManager.getTotalWaves(),
+      onRestart: () => this.scene.restart({ difficulty: this.difficultyKey, mapId: this.mapId }),
     });
   }
 
-  private showFloatingText(
-    x: number,
-    y: number,
-    message: string,
-    color: string,
-    fontSize: string = '14px',
-    duration: number = 1200,
-  ): void {
-    const text = this.add.text(x, y, message, {
-      fontSize,
-      color,
-      fontStyle: 'bold',
-    });
-    text.setOrigin(0.5);
-    text.setDepth(30);
-
-    this.tweens.add({
-      targets: text,
-      y: y - 30,
-      alpha: 0,
-      duration,
-      ease: 'Power2',
-      onComplete: () => text.destroy(),
-    });
+  // Builds the callback object passed to infoPanel functions; called fresh at each show/refresh.
+  private buildTowerInfoCallbacks(): TowerInfoCallbacks {
+    return {
+      getGold: () => this.gold,
+      onUpgrade: (tower, cost) => {
+        this.gold -= cost;
+        tower.upgrade();
+        clearTowerInfo(this.panelRefs);
+        showTowerInfo(this, this.panelRefs, tower, this.buildTowerInfoCallbacks());
+      },
+      onSell: (tower, sellValue) => {
+        this.gold += sellValue;
+        const idx = this.towers.indexOf(tower);
+        if (idx !== -1) this.towers.splice(idx, 1);
+        if (this.isOpenField) {
+          this.pathGrid[tower.tileY][tower.tileX] = 1;
+          const newWaypoints = findPath(this.pathGrid, this.mapDef.start, this.mapDef.end);
+          this.waypoints = newWaypoints;
+          this.waveManager.updateWaypoints(newWaypoints);
+          for (const enemy of this.enemies) {
+            if (enemy.alive) enemy.repath(newWaypoints);
+          }
+        }
+        this.clearTowerSelection();
+        tower.startSellAnimation(() => tower.destroy());
+      },
+      onConvert: (wall, defId) => this.convertWallToTower(wall, defId),
+      onRefresh: (tower) => {
+        clearTowerInfo(this.panelRefs);
+        showTowerInfo(this, this.panelRefs, tower, this.buildTowerInfoCallbacks());
+      },
+      createButton: (x, y, w, h, label, color, onClick) =>
+        this.createButton(x, y, w, h, label, color, onClick),
+      infoPanelX: this.infoPanelX,
+    };
   }
 }
