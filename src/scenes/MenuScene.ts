@@ -5,9 +5,18 @@ import { loadLeaderboard } from '@/utils/leaderboard';
 
 const CANVAS_HEIGHT = GAME_HEIGHT + UI_HEIGHT;
 
+type VisibleObject = { setVisible(visible: boolean): void };
+
 export class MenuScene extends Phaser.Scene {
+  private selectedMode: 'standard' | 'wintermaul' = 'standard';
   private selectedDifficulty: DifficultyKey = 'normal';
   private selectedMapId: string = DEFAULT_MAP_ID;
+
+  private modeButtons: { mode: 'standard' | 'wintermaul'; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
+  private modeDescText: Phaser.GameObjects.Text | null = null;
+  private mapSectionObjects: VisibleObject[] = [];
+  private wintermaulNoteObjects: VisibleObject[] = [];
+  private controlsKeyText: Phaser.GameObjects.Text | null = null;
 
   private difficultyButtons: { key: DifficultyKey; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
   private mapButtons: { id: string; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }[] = [];
@@ -21,15 +30,19 @@ export class MenuScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
 
     // Backdrop card
-    this.add.rectangle(cx, CANVAS_HEIGHT / 2 - 10, 680, 660, 0x0d1428)
+    this.add.rectangle(cx, CANVAS_HEIGHT / 2 - 10, 680, 700, 0x0d1428)
       .setStrokeStyle(1, 0x243050);
 
     this.buildTitle(cx);
     this.buildBestScore(cx);
-    this.buildStartButton(cx);
+    this.buildModeSelector(cx);
     this.buildMapSelector(cx);
+    this.buildWintermaulNote(cx);
     this.buildDifficultySelector(cx);
+    this.buildStartButton(cx);
     this.buildControlsPanel(cx);
+
+    this.refreshModeButtons();
   }
 
   private buildTitle(cx: number): void {
@@ -68,65 +81,128 @@ export class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
   }
 
-  private buildStartButton(cx: number): void {
-    const color = 0x1d7a35;
-    const container = this.add.container(cx, 235);
-
-    const bg = this.add.rectangle(0, 0, 220, 50, color);
-    bg.setStrokeStyle(1, 0x2eaa50);
-    bg.setInteractive({ useHandCursor: true });
-
-    const label = this.add.text(0, 0, 'START GAME', {
-      fontSize: '20px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-      fontFamily: 'Arial, sans-serif',
-    });
-    label.setOrigin(0.5);
-
-    container.add([bg, label]);
-
-    bg.on('pointerdown', () => {
-      this.scene.start('GameScene', {
-        difficulty: this.selectedDifficulty,
-        mapId: this.selectedMapId,
-      });
-    });
-    bg.on('pointerover', () => {
-      bg.setFillStyle(0x2eaa50);
-      bg.setStrokeStyle(1, 0x55cc70);
-    });
-    bg.on('pointerout', () => {
-      bg.setFillStyle(color);
-      bg.setStrokeStyle(1, 0x2eaa50);
-    });
-  }
-
-  private buildMapSelector(cx: number): void {
-    this.add.text(cx, 283, 'Map', {
+  private buildModeSelector(cx: number): void {
+    this.add.text(cx, 238, 'Game Mode', {
       fontSize: '13px',
       color: '#7a8eaa',
       fontFamily: 'Arial, sans-serif',
     }).setOrigin(0.5);
 
-    const maps = Object.values(MAP_DEFS);
+    const modeConfigs: { mode: 'standard' | 'wintermaul'; label: string; color: number }[] = [
+      { mode: 'standard',   label: 'STANDARD',   color: 0x0d3b6e },
+      { mode: 'wintermaul', label: 'WINTERMAUL', color: 0x1a3a1a },
+    ];
+
+    const btnW = 200;
+    const btnH = 50;
+    const gap = 16;
+    const totalW = 2 * btnW + gap;
+    const leftCenterX = cx - totalW / 2 + btnW / 2;
+
+    this.modeButtons = [];
+
+    modeConfigs.forEach(({ mode, label, color }, i) => {
+      const x = leftCenterX + i * (btnW + gap);
+      const bg = this.add.rectangle(x, 275, btnW, btnH, color);
+      bg.setInteractive({ useHandCursor: true });
+
+      const text = this.add.text(x, 275, label, {
+        fontSize: '15px',
+        fontStyle: 'bold',
+        fontFamily: 'Arial, sans-serif',
+        color: '#aaaaaa',
+      }).setOrigin(0.5);
+
+      this.modeButtons.push({ mode, bg, text });
+
+      bg.on('pointerdown', () => {
+        this.selectedMode = mode;
+        this.refreshModeButtons();
+      });
+      bg.on('pointerover', () => {
+        if (mode !== this.selectedMode) {
+          const r = Math.min(0xff, ((color >> 16) & 0xff) + 0x11);
+          const g = Math.min(0xff, ((color >>  8) & 0xff) + 0x11);
+          const b = Math.min(0xff, ( color        & 0xff) + 0x11);
+          bg.setFillStyle((r << 16) | (g << 8) | b);
+        }
+      });
+      bg.on('pointerout', () => {
+        if (mode !== this.selectedMode) bg.setFillStyle(color);
+      });
+    });
+
+    this.modeDescText = this.add.text(cx, 315, '', {
+      fontSize: '12px',
+      color: '#888899',
+      fontFamily: 'Arial, sans-serif',
+      align: 'center',
+      wordWrap: { width: 440 },
+    }).setOrigin(0.5);
+  }
+
+  private refreshModeButtons(): void {
+    for (const { mode, bg, text } of this.modeButtons) {
+      const selected = mode === this.selectedMode;
+      bg.setStrokeStyle(selected ? 2 : 1, selected ? 0xffffff : 0x444466);
+      text.setStyle({ color: selected ? '#ffffff' : '#aaaaaa' });
+    }
+
+    const modeDescs: Record<'standard' | 'wintermaul', string> = {
+      standard:   'Fixed path — pick a map and survive the waves using combat towers.',
+      wintermaul: 'Open field — build walls to maze enemies, then convert them to combat towers.',
+    };
+    this.modeDescText?.setText(modeDescs[this.selectedMode]);
+
+    this.refreshMapSection();
+  }
+
+  private refreshMapSection(): void {
+    const isWintermaul = this.selectedMode === 'wintermaul';
+
+    for (const obj of this.mapSectionObjects) {
+      obj.setVisible(!isWintermaul);
+    }
+    for (const obj of this.wintermaulNoteObjects) {
+      obj.setVisible(isWintermaul);
+    }
+
+    if (isWintermaul) {
+      this.selectedMapId = 'wintermaul';
+      this.controlsKeyText?.setText('1 – 8  (8 = Wall)');
+    } else {
+      this.selectedMapId = DEFAULT_MAP_ID;
+      this.refreshMapButtons();
+      this.controlsKeyText?.setText('1 – 7');
+    }
+  }
+
+  private buildMapSelector(cx: number): void {
+    const label = this.add.text(cx, 355, 'Map', {
+      fontSize: '13px',
+      color: '#7a8eaa',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+    this.mapSectionObjects.push(label);
+
+    const standardMaps = Object.values(MAP_DEFS).filter(m => !m.openField);
     const difficultyColors: Record<string, number> = {
-      easy: 0x1b5e20,
+      easy:   0x1b5e20,
       medium: 0x0d3b6e,
-      hard: 0x7f0000,
+      hard:   0x7f0000,
     };
 
-    const btnW = 140;
+    const btnW = 170;
     const btnH = 44;
     const gap = 10;
-    const totalW = maps.length * btnW + (maps.length - 1) * gap;
+    const totalW = standardMaps.length * btnW + (standardMaps.length - 1) * gap;
     const startX = cx - totalW / 2;
 
     this.mapButtons = [];
 
-    maps.forEach((map, i) => {
+    standardMaps.forEach((map, i) => {
       const x = startX + i * (btnW + gap) + btnW / 2;
-      const y = 320;
+      const y = 390;
       const color = difficultyColors[map.difficulty] ?? 0x222244;
       const isSelected = map.id === this.selectedMapId;
 
@@ -142,19 +218,19 @@ export class MenuScene extends Phaser.Scene {
       }).setOrigin(0.5);
 
       const diffLabel = map.difficulty.charAt(0).toUpperCase() + map.difficulty.slice(1);
-      this.add.text(x, y + 10, diffLabel, {
+      const diffText = this.add.text(x, y + 10, diffLabel, {
         fontSize: '11px',
         color: isSelected ? '#cccccc' : '#777777',
         fontFamily: 'Arial, sans-serif',
       }).setOrigin(0.5);
 
       this.mapButtons.push({ id: map.id, bg, text: nameText });
+      this.mapSectionObjects.push(bg, nameText, diffText);
 
       bg.on('pointerdown', () => {
         this.selectedMapId = map.id;
         this.refreshMapButtons();
       });
-
       bg.on('pointerover', () => {
         if (map.id !== this.selectedMapId) {
           const r = Math.min(0xff, ((color >> 16) & 0xff) + 0x11);
@@ -177,8 +253,24 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
+  private buildWintermaulNote(cx: number): void {
+    const line1 = this.add.text(cx, 375, 'Enemies enter at the top, exit at the bottom.', {
+      fontSize: '13px',
+      color: COLORS.ui.gold,
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    const line2 = this.add.text(cx, 400, 'You must never fully block all routes.', {
+      fontSize: '12px',
+      color: '#777788',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0.5);
+
+    this.wintermaulNoteObjects.push(line1, line2);
+  }
+
   private buildDifficultySelector(cx: number): void {
-    this.add.text(cx, 362, 'Difficulty', {
+    this.add.text(cx, 447, 'Difficulty', {
       fontSize: '13px',
       color: '#7a8eaa',
       fontFamily: 'Arial, sans-serif',
@@ -200,7 +292,7 @@ export class MenuScene extends Phaser.Scene {
 
     options.forEach(({ key, label, color }, i) => {
       const x = startX + i * (btnW + gap) + btnW / 2;
-      const y = 391;
+      const y = 478;
 
       const bg = this.add.rectangle(x, y, btnW, btnH, color);
       const isSelected = key === this.selectedDifficulty;
@@ -239,7 +331,7 @@ export class MenuScene extends Phaser.Scene {
       hard:   'Hard — less gold, stronger enemies',
     };
 
-    this.diffDescText = this.add.text(cx, 416, diffDescs[this.selectedDifficulty], {
+    this.diffDescText = this.add.text(cx, 504, diffDescs[this.selectedDifficulty], {
       fontSize: '11px',
       color: '#666677',
       fontFamily: 'Arial, sans-serif',
@@ -261,10 +353,44 @@ export class MenuScene extends Phaser.Scene {
     this.diffDescText?.setText(diffDescs[this.selectedDifficulty]);
   }
 
+  private buildStartButton(cx: number): void {
+    const color = 0x1d7a35;
+    const container = this.add.container(cx, 537);
+
+    const bg = this.add.rectangle(0, 0, 220, 50, color);
+    bg.setStrokeStyle(1, 0x2eaa50);
+    bg.setInteractive({ useHandCursor: true });
+
+    const label = this.add.text(0, 0, 'START GAME', {
+      fontSize: '20px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+    });
+    label.setOrigin(0.5);
+
+    container.add([bg, label]);
+
+    bg.on('pointerdown', () => {
+      this.scene.start('GameScene', {
+        difficulty: this.selectedDifficulty,
+        mapId: this.selectedMapId,
+      });
+    });
+    bg.on('pointerover', () => {
+      bg.setFillStyle(0x2eaa50);
+      bg.setStrokeStyle(1, 0x55cc70);
+    });
+    bg.on('pointerout', () => {
+      bg.setFillStyle(color);
+      bg.setStrokeStyle(1, 0x2eaa50);
+    });
+  }
+
   private buildControlsPanel(cx: number): void {
     const panelW = 540;
-    const panelH = 148;
-    const panelY = 508;
+    const panelH = 120;
+    const panelY = 635;
     const top = panelY - panelH / 2;
 
     this.add.rectangle(cx, panelY, panelW, panelH, COLORS.ui.panel)
@@ -279,20 +405,33 @@ export class MenuScene extends Phaser.Scene {
 
     const gfx = this.add.graphics();
     gfx.lineStyle(1, 0x2a3a5e, 1);
-    gfx.lineBetween(cx - 260, top + 36, cx + 260, top + 36);
-
-    const rows: [string, string][] = [
-      ['1 – 7',       'Select a tower type'],
-      ['Left click',  'Place tower or select existing'],
-      ['Escape',      'Cancel placement'],
-      ['Click tower', 'Upgrade or sell'],
-    ];
+    gfx.lineBetween(cx - 260, top + 33, cx + 260, top + 33);
 
     const keyX = cx - 245;
     const descX = cx - 80;
 
-    rows.forEach(([key, desc], i) => {
-      const y = top + 52 + i * 25;
+    // First row — key range changes based on selected mode
+    this.controlsKeyText = this.add.text(keyX, top + 49, '1 – 7', {
+      fontSize: '13px',
+      color: COLORS.ui.gold,
+      fontStyle: 'bold',
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0, 0.5);
+
+    this.add.text(descX, top + 49, 'Select a tower type', {
+      fontSize: '13px',
+      color: COLORS.ui.text,
+      fontFamily: 'Arial, sans-serif',
+    }).setOrigin(0, 0.5);
+
+    const remainingRows: [string, string][] = [
+      ['Left click',  'Place tower or select existing'],
+      ['Escape',      'Cancel placement'],
+      ['Click tower', 'Upgrade, sell, or convert'],
+    ];
+
+    remainingRows.forEach(([key, desc], i) => {
+      const y = top + 49 + (i + 1) * 22;
       this.add.text(keyX, y, key, {
         fontSize: '13px',
         color: COLORS.ui.gold,
